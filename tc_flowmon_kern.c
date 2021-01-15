@@ -40,7 +40,7 @@
 /* Max number of flows that can be
  *	monitored. 
  */
-MAXFLOWS		1024 
+#define MAXFLOWS		1024 
 
 /* Exit return codes */
 #define EXIT_OK 		 0 /* == EXIT_SUCCESS (stdlib.h) man exit(3) */
