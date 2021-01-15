@@ -10,14 +10,15 @@
 #include <linux/if_vlan.h>
 #include <linux/if_ether.h>		// struct ethhdr
 #include <linux/pkt_cls.h>
-#include <linux/time.h>
+/*#include <linux/time.h>*/
 #include <linux/if_ether.h>
 #include <linux/ip.h>
 #include <linux/ipv6.h>
 #include <linux/icmp.h>
+#include <linux/icmpv6.h>
 #include <linux/tcp.h>
 #include <linux/udp.h>
-//#include <netinet/in.h>
+#include <netinet/in.h>
 #include <linux/ip.h>
 #ifndef __BCC__
 #include <bpf/bpf_helpers.h>
@@ -173,8 +174,6 @@ static __always_inline int parse_ethhdr(struct hdr_cursor *nh,
 
 }
 
-/* TODO: Add IPv6 support.
- */
 static __always_inline int parse_ip6hdr(struct hdr_cursor *nh,
 					void *data_end,
 					struct ipv6hdr **ip6hdr)
@@ -219,6 +218,10 @@ static __always_inline int parse_iphdr(struct hdr_cursor *nh,
 	return bpf_ntohs(iph->protocol);
 }
 
+/* Not needed when only the common part of the ICMP/ICMP6 header
+ * is parsed (see parse_icmphdr_common() below.
+ */
+/*
 static __always_inline int parse_icmp6hdr(struct hdr_cursor *nh,
 					  void *data_end,
 					  struct icmp6hdr **icmp6hdr)
@@ -248,7 +251,10 @@ static __always_inline int parse_icmphdr(struct hdr_cursor *nh,
 
 	return bpf_ntohs(icmph->type);
 }
+*/
 
+/* This parses the common fields to ICMP/ICMP6 header.
+ */
 static __always_inline int parse_icmphdr_common(struct hdr_cursor *nh,
 						void *data_end,
 						struct icmphdr_common **icmphdr)
@@ -342,7 +348,98 @@ static unsigned int print_map()
 #endif
 */
 
+/* Parse the headers and look for the parameters that identify the flow.
+ */
+static __always_inline int process_ip_header(struct hdr_cursor *nh,
+					void *data_end,
+					struct iphdr **iph,
+					struct flow_id *key)
+{
+	int proto;
+
+	if( (proto = parse_iphdr(nh, data_end, iph)) < 0)
+		return proto;
+
+	key->daddr = (*iph)->daddr;
+	key->saddr = (*iph)->saddr;
+	key->proto = proto;
+
+	return proto;
+}
+
+static __always_inline int process_ipv6_header(struct hdr_cursor *nh,
+					void *data_end,
+					struct ipv6hdr **ip6hdr,
+					struct flow_id *key)
+{
+	int proto;
+	
+	if( (proto = parse_ip6hdr(nh, data_end, ip6hdr)) < 0)
+		return proto;
+
+	/* TODO: copy ipv6 addresses in the key, once this field supports 
+	 * IPv6 flows. 
+	 * For now, an error is returned because this protocol is not
+	 * supported.
+	 */
+	key->proto = proto;
+
+	return -1;
+}
+
 			
+static __always_inline int process_udp_header(struct hdr_cursor *nh,
+					void *data_end,
+					struct udphdr **udphdr,
+					struct flow_id *key)
+{
+	int len;
+
+	if( (len = parse_udphdr(nh, data_end, udphdr)) < 0 )
+		return len;
+
+	key->sport = bpf_ntohs((*udphdr)->source);
+	key->dport = bpf_ntohs((*udphdr)->dest);
+
+	return len;
+}
+
+static __always_inline int process_tcp_header(struct hdr_cursor *nh,
+					void *data_end,
+					struct tcphdr **tcphdr,
+					struct flow_id *key)
+{
+	int len;
+
+	if( (len = parse_tcphdr(nh, data_end, tcphdr)) < 0 )
+		return len;
+
+	key->sport = bpf_ntohs((*tcphdr)->source);
+	key->dport = bpf_ntohs((*tcphdr)->dest);
+
+	return len;
+}
+
+static __always_inline int process_icmp_header(struct hdr_cursor *nh,
+						void *data_end,
+						struct icmphdr_common **icmphdr,
+						struct flow_id *key)
+{
+	int len;
+
+	if( (len = parse_icmphdr_common(nh, data_end, icmphdr)) < 0 )
+		return len;
+
+	/* This is a totally arbitrary association with no real meaning
+	 * for the names. 
+	 * TODO: check if this works for the monitoring purposes.
+	 */
+	key->sport = bpf_ntohs((*icmphdr)->type);
+	key->dport = bpf_ntohs((*icmphdr)->code);
+
+	return len;
+}
+
 #ifdef __BCC__
 BCC_SEC("flowmon")
 #else
@@ -356,13 +453,17 @@ int  flow_label_stats(struct __sk_buff *skb)
 	void *data_end = (void *)(long)skb->data_end;
 	void *data     = (void *)(long)skb->data;
 	__u32 len = 0;
-	__u32 init_value = 1;
+	/* __u32 init_value = 1; */
 	int eth_proto, ip_proto = 0;
 	/* int eth_proto, ip_proto, icmp_type = 0; */
-	struct flow_id flow = { 0 }; 
+	struct flow_id key = { 0 }; 
 	struct hdr_cursor nh;
 	struct ethhdr *eth;
-	/* struct ipv6hdr* iph6; */
+	struct iphdr *iph4;
+	struct ipv6hdr *iph6;
+	struct icmphdr_common *icmphdrc;
+	struct tcphdr *tcphdr;
+	struct udphdr *udphdr;
 	__u64 ts, te;
 
 	ts = bpf_ktime_get_ns();	
@@ -383,12 +484,12 @@ int  flow_label_stats(struct __sk_buff *skb)
 	 * TODO: read IP source/destination addresses.
 	 */
 	switch (eth_proto) {
-		case ETH_P_IPV4:
-			if( (ip_proto = parse_iphdr(&nh, data_end, &iph4)) < 0 )
-				return TC_ACK_OK; /* Should we drop in this case??? */
+		case ETH_P_IP:
+			if( (ip_proto = process_ip_header(&nh, data_end, &iph4, &key)) < 0 )
+				return TC_ACT_OK; /* Should we drop in this case??? */
 			break;
 		case ETH_P_IPV6:
-			if( (ip_proto = parse_ip6hdr(&nh, data_end, &iph6)) < 0 ) 
+			if( (ip_proto = process_ipv6_header(&nh, data_end, &iph6, &key)) < 0 ) 
 				return TC_ACT_OK;
 			break;
 		default:
@@ -402,15 +503,16 @@ int  flow_label_stats(struct __sk_buff *skb)
 	 */
 	switch (ip_proto) {
 		case IPPROTO_ICMP:
-			if( parse_icmp(&nh, data_end, &icmphdr) < 0 )
+		case IPPROTO_ICMPV6:
+			if( process_icmp_header(&nh, data_end, &icmphdrc, &key) < 0 )
 				return TC_ACT_OK;
 			break;
 		case IPPROTO_TCP:
-			if( parse_tcp(&nh, data_end, &tcphdr) < 0 )
+			if( process_tcp_header(&nh, data_end, &tcphdr, &key) < 0 )
 				return TC_ACT_OK;
 			break;
 		case IPPROTO_UDP:
-			if( parse_udp(&nh, data_end, &udphdr) < 0 )
+			if( process_udp_header(&nh, data_end, &udphdr, &key) < 0 )
 				return TC_ACT_OK;
 			break;
 		default:
