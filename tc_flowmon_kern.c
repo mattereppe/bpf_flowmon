@@ -457,6 +457,8 @@ int  flow_label_stats(struct __sk_buff *skb)
 	int eth_proto, ip_proto = 0;
 	/* int eth_proto, ip_proto, icmp_type = 0; */
 	struct flow_id key = { 0 }; 
+	struct flow_info info = { 0 };
+	struct flow_info *value = 0;
 	struct hdr_cursor nh;
 	struct ethhdr *eth;
 	struct iphdr *iph4;
@@ -464,6 +466,7 @@ int  flow_label_stats(struct __sk_buff *skb)
 	struct icmphdr_common *icmphdrc;
 	struct tcphdr *tcphdr;
 	struct udphdr *udphdr;
+
 	__u64 ts, te;
 
 	ts = bpf_ktime_get_ns();	
@@ -527,6 +530,15 @@ int  flow_label_stats(struct __sk_buff *skb)
 
 
 	/* Collect the required statistics. */
+	value = bpf_map_lookup_elem(&flowmon_stats, &key);
+	if ( !value )
+		value = &info;
+	
+	/* TODO: Add real statistics here. */
+	value->pkts = 3;
+	value->bytes = 46;
+
+	bpf_map_update_elem(&flowmon_stats, &key, value, BPF_ANY);
 
 	/*
 #ifndef __BCC__
