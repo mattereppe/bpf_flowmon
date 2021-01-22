@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: (GPL-2.0 OR BSD-2-Clause)
 XDP_TARGETS := tc_flowmon_kern
-USER_TARGETS := 
+USER_TARGETS := tc_flowmon_user
 PYTHON_TARGETS := 
 
 LLC ?= llc
@@ -75,7 +75,7 @@ $(USER_TARGETS): %: %.c  Makefile $(KERN_USER_H) $(EXTRA_DEPS) $(USER_OBJ) $(USE
 $(XDP_OBJ): %.o: %.c  Makefile $(KERN_USER_H) $(EXTRA_DEPS)
 	$(CLANG) -S \
             -target bpf \
-            -D __BPF_TRACING__ \
+            -D __BPF_TRACING__ -D _DEBUG_ \
             $(BPF_CFLAGS) \
             -Wall \
             -Wno-unused-value \

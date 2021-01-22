@@ -6,6 +6,7 @@
 #define __BCC__
 #endif
 
+#include "common.h"
 #include <linux/bpf.h>
 #include <linux/if_vlan.h>
 #include <linux/if_ether.h>		// struct ethhdr
@@ -38,10 +39,6 @@
 {}
 #endif
 
-/* Max number of flows that can be
- *	monitored. 
- */
-#define MAXFLOWS		1024 
 
 /* Exit return codes */
 #define EXIT_OK 		 0 /* == EXIT_SUCCESS (stdlib.h) man exit(3) */
@@ -49,26 +46,6 @@
 #define EXIT_FAIL_OPTION	 2
 #define EXIT_FAIL_XDP		30
 #define EXIT_FAIL_BPF		40
-
-/* Define the identifier for each flow. 
- *	Fields are currently sized for IPv4. 
- *	TODO: add support for IPv6.
- */
-struct flow_id {
-		__be32	saddr;
-		__be32	daddr;
-		__u8		proto;
-		__be16	sport;			/* "id" for ICM Echo request/reply */
-		__be16	dport;			/* "Seq" for ICMP Echo request/reply */
-};
-
-/* Define the data collected for each flow.
- *	TODO: add support for more statistics.
- */
-struct flow_info {
-	__u32		pkts;
-	__u32		bytes;
-};
 
 /* TODO: Improve performance by using multiple per-cpu hash maps.
  */
@@ -82,6 +59,16 @@ struct bpf_map_def SEC("maps") flowmon_stats = {
 	.max_entries = MAXFLOWS,
 	.map_flags = BPF_ANY
 };
+
+/*
+struct bpf_map_def SEC("maps") fl_stats = {
+	.type = BPF_MAP_TYPE_ARRAY,
+	.key_size = sizeof(__u32),
+	.value_size = sizeof(__u32),
+	.max_entries = MAXFLOWS,
+	.map_flags = BPF_ANY
+};
+*/
 #endif
 
 #ifndef __BCC__
@@ -169,7 +156,7 @@ static __always_inline int parse_ethhdr(struct hdr_cursor *nh,
         }
 
         nh->pos = vlh;
-        return h_proto; /* network-byte-order */
+        return bpf_ntohs(h_proto); /* host-byte-order */
 
 
 }
@@ -215,7 +202,7 @@ static __always_inline int parse_iphdr(struct hdr_cursor *nh,
 	nh->pos += hdrsize;
 	*iphdr = iph;
 
-	return bpf_ntohs(iph->protocol);
+	return iph->protocol;
 }
 
 /* Not needed when only the common part of the ICMP/ICMP6 header
@@ -357,8 +344,10 @@ static __always_inline int process_ip_header(struct hdr_cursor *nh,
 {
 	int proto;
 
+	bpf_debug("Checkpoint 1a");
 	if( (proto = parse_iphdr(nh, data_end, iph)) < 0)
 		return proto;
+	bpf_debug("Checkpoint 1b : %x", proto);
 
 	key->daddr = (*iph)->daddr;
 	key->saddr = (*iph)->saddr;
@@ -471,6 +460,8 @@ int  flow_label_stats(struct __sk_buff *skb)
 
 	ts = bpf_ktime_get_ns();	
 	
+	bpf_debug("Program invoked!");
+
 	/* Parse Ethernet header and verify protocol number. */
 	nh.pos = data;
 	len = data_end - data;
@@ -482,6 +473,8 @@ int  flow_label_stats(struct __sk_buff *skb)
 		bpf_debug("Unknown ethernet protocol/Too many nested VLANs.\n");
 		return TC_ACT_OK; /* TODO: XDP_ABORT? */
 	}
+
+	bpf_debug("Checkpoint 1 - eth proto: 0x%x",eth_proto);
 
 	/* Retrieve ip_proto, according to specific IP version. 
 	 * TODO: read IP source/destination addresses.
@@ -502,6 +495,7 @@ int  flow_label_stats(struct __sk_buff *skb)
 			return TC_ACT_OK;
 	}
 
+	bpf_debug("Checkpoint 2 - IP proto: 0x%x", ip_proto);
 	/* Read port numbers or equivalent fields for ICMP packets.
 	 */
 	switch (ip_proto) {
@@ -528,9 +522,10 @@ int  flow_label_stats(struct __sk_buff *skb)
 	}
 
 
+	bpf_debug("Checkpoint 3 - key.proto: %d", key.proto);
 
 	/* Collect the required statistics. */
-	value = bpf_map_lookup_elem(&flowmon_stats, &key);
+	value = bpf_map_lookup_elem(&flowmon_stats, &key); 
 	if ( !value )
 		value = &info;
 	
@@ -538,7 +533,18 @@ int  flow_label_stats(struct __sk_buff *skb)
 	value->pkts = 3;
 	value->bytes = 46;
 
-	bpf_map_update_elem(&flowmon_stats, &key, value, BPF_ANY);
+	bpf_debug("Checkpoint 4 - key.proto: %d", key.proto);
+
+	 bpf_map_update_elem(&flowmon_stats, &key, value, BPF_ANY); 
+
+	/*
+	int k = 1;
+	int v = 3;
+	bpf_map_lookup_elem(&fl_stats, &k);
+	bpf_map_update_elem(&fl_stats, &k, &v, BPF_ANY);
+	*/
+
+	bpf_debug("Just inserted something in the map...");
 
 	/*
 #ifndef __BCC__
