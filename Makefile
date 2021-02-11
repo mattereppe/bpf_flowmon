@@ -13,7 +13,7 @@ USER_DEP :=
 # Valid definition for all possible targets
 XDP_C = ${XDP_TARGETS:=.c}
 XDP_OBJ = ${XDP_C:.c=.o}
-USER_C := ${USER_TARGETS:=.c}
+USER_C := ${USER_TARGETS:=.c} flow_mgmt.c
 USER_OBJ := ${USER_C:.c=.o} 
 
 #LIBBPF_DIR = /home/debian/xdp-tutorial/libbpf/src/
@@ -29,8 +29,8 @@ EXTRA_DEPS +=
 #LDFLAGS ?= -L$(LIBBPF_DIR)
 
 #BPF_CFLAGS ?= -I$(LIBBPF_DIR)/build/usr/include/ -I/home/debian/xdp-tutorial/headers/
-#BPF_CFLAGS += -I/usr/include/x86_64-linux-gnu/ -D _DEBUG_
-BPF_CFLAGS += -I/usr/include/x86_64-linux-gnu/ 
+BPF_CFLAGS += -I/usr/include/x86_64-linux-gnu/ -D _DEBUG_
+#BPF_CFLAGS += -I/usr/include/x86_64-linux-gnu/ 
 # LIBBPF headers are installed in /usr/include/bpf
 
 # -l: says to use the excat name (do not prepend "lib" and do to select between ".a" or ".so")
@@ -55,22 +55,9 @@ llvm-check: $(CLANG) $(LLC)
 	        else true; fi; \
 	done
 
-$(OBJECT_LIBBPF):
-	@if [ ! -d $(LIBBPF_DIR) ]; then \
-	        echo "Error: Need libbpf submodule"; \
-	        echo "May need to run git submodule update --init"; \
-	        exit 1; \
-	else \
-	        cd $(LIBBPF_DIR) && $(MAKE) all; \
-	        mkdir -p build; DESTDIR=build $(MAKE) install_headers; \
-	fi
-
-common_params.o: common_params.c common_params.h
-	$(CC) $(CFLAGS) -c -o $@ $<
-
 $(USER_TARGETS): %: %.c  Makefile $(KERN_USER_H) $(EXTRA_DEPS) $(USER_OBJ) $(USER_DEP)
 	$(CC) -Wall $(CFLAGS) $(LDFLAGS) -o $@ \
-         $< $(USER_DEP) $(LIBS) 
+         $(USER_OBJ) $(LIBS) 
 
 $(XDP_OBJ): %.o: %.c  Makefile $(KERN_USER_H) $(EXTRA_DEPS)
 	$(CLANG) -S \

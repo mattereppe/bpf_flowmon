@@ -344,10 +344,8 @@ static __always_inline int process_ip_header(struct hdr_cursor *nh,
 {
 	int proto;
 
-	bpf_debug("Checkpoint 1a");
 	if( (proto = parse_iphdr(nh, data_end, iph)) < 0)
 		return proto;
-	bpf_debug("Checkpoint 1b : %x", proto);
 
 	key->daddr = (*iph)->daddr;
 	key->saddr = (*iph)->saddr;
@@ -444,8 +442,7 @@ static __always_inline int update_frame_stats(struct flow_info *value, __u64 ts)
 static __always_inline int update_ip_stats(struct flow_info *value, struct iphdr *iph)
 {
 	int idx, fl, len;
-	__u16 ttl;
-	__u8 tos;
+	__u8 tos, ttl;
 	struct iphdr *ip4h;
 	struct ipv6hdr *ip6h;
 
@@ -462,7 +459,7 @@ static __always_inline int update_ip_stats(struct flow_info *value, struct iphdr
 	if ( ip4h->version == 4 )
 	{
 		tos = ip4h->tos;
-		len = ip4h->tot_len;
+		len = ntohs(ip4h->tot_len);
 		ttl = ip4h->ttl;
 	}
 	else
@@ -474,7 +471,7 @@ static __always_inline int update_ip_stats(struct flow_info *value, struct iphdr
 			if( i <2 )
 				fl << 8;
 		}
-		len = ip6h->payload_len + 40;
+		len = ntohs(ip6h->payload_len) + 40;
 		// TODO: Manage Jumbo payload (payload length = 0)
 		ttl = ip6h->hop_limit;
 	}
@@ -592,12 +589,10 @@ int  flow_label_stats(struct __sk_buff *skb)
 	struct tcphdr *tcphdr;
 	struct udphdr *udphdr;
 
-	__u64 ts, te;
+	__u64 ts;
 
 	ts = bpf_ktime_get_ns();	
 	
-	bpf_debug("Program invoked!");
-
 	/* Parse Ethernet header and verify protocol number. */
 	nh.pos = data;
 	len = data_end - data;
@@ -609,8 +604,6 @@ int  flow_label_stats(struct __sk_buff *skb)
 		bpf_debug("Unknown ethernet protocol/Too many nested VLANs.\n");
 		return TC_ACT_OK; /* TODO: XDP_ABORT? */
 	}
-
-	bpf_debug("Checkpoint 1 - eth proto: 0x%x",eth_proto);
 
 	/* Retrieve ip_proto, according to specific IP version. 
 	 * TODO: read IP source/destination addresses.
@@ -631,7 +624,6 @@ int  flow_label_stats(struct __sk_buff *skb)
 			return TC_ACT_OK;
 	}
 
-	bpf_debug("Checkpoint 2 - IP proto: 0x%x", ip_proto);
 	/* Read port numbers or equivalent fields for ICMP packets.
 	 */
 	switch (ip_proto) {
@@ -658,8 +650,6 @@ int  flow_label_stats(struct __sk_buff *skb)
 	}
 
 
-	bpf_debug("Checkpoint 3 - key.proto: %d", key.proto);
-
 	/* Collect the required statistics. */
 	value = bpf_map_lookup_elem(&flowmon_stats, &key); 
 	if ( !value )
@@ -669,8 +659,6 @@ int  flow_label_stats(struct __sk_buff *skb)
 	update_ip_stats(value, iph4);
 	if ( ip_proto == IPPROTO_TCP )
 		update_tcp_stats(value, tcphdr);
-
-	bpf_debug("Checkpoint 4 - key.proto: %d", key.proto);
 
 	bpf_map_update_elem(&flowmon_stats, &key, value, BPF_ANY); 
 
@@ -702,9 +690,6 @@ int  flow_label_stats(struct __sk_buff *skb)
 	*/
 	  
 
-	te = bpf_ktime_get_ns();
-	bpf_debug("Time elapsed: %d", te-ts);
-	
 	return TC_ACT_OK;
 }
 
