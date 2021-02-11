@@ -429,6 +429,142 @@ static __always_inline int process_icmp_header(struct hdr_cursor *nh,
 	return len;
 }
 
+static __always_inline int update_frame_stats(struct flow_info *value, __u64 ts)
+{
+	value->pkts++;
+	if( value->first_seen == 0 )
+		value->first_seen = ts;
+	else
+		value->jitter += ts - value->last_seen;
+	value->last_seen = ts;
+
+	return 1;
+}
+
+static __always_inline int update_ip_stats(struct flow_info *value, struct iphdr *iph)
+{
+	int idx, fl, len;
+	__u16 ttl;
+	__u8 tos;
+	struct iphdr *ip4h;
+	struct ipv6hdr *ip6h;
+
+	ip4h = (struct iphdr *) iph;
+	ip6h = (struct ipv6hdr *) iph;
+	fl = 0;
+
+	value->version = ip4h->version;
+
+	/* Here we remove the dependency on the 
+	 * IP version, so in the following the same
+	 * code applied to both versions.
+	 */
+	if ( ip4h->version == 4 )
+	{
+		tos = ip4h->tos;
+		len = ip4h->tot_len;
+		ttl = ip4h->ttl;
+	}
+	else
+	{
+		tos = ip6h->priority;
+		for(int i=0; i<3; i++)
+		{
+			fl &= ip6h->flow_lbl[i];
+			if( i <2 )
+				fl << 8;
+		}
+		len = ip6h->payload_len + 40;
+		// TODO: Manage Jumbo payload (payload length = 0)
+		ttl = ip6h->hop_limit;
+	}
+	
+	/* TODO: Here we can detect covert channels in
+	 * the IP header.	
+	 */
+	value->fl = fl;
+	value->tos = tos;
+
+	value->bytes += len;
+	if( (value->min_pkt_len == 0)  || (len < value->min_pkt_len) )
+		value->min_pkt_len = len;
+	if( len > value->max_pkt_len )
+		value->max_pkt_len = len;
+	switch ( len ) {
+		case 0 ... 127:
+			idx = 0;
+			break;
+		case 128 ... 255:
+			idx = 1;
+			break;
+		case 256 ... 511:
+			idx = 2;
+			break;
+		case 512 ... 1023:
+			idx = 3;
+			break;
+		case 1024 ... 1513:
+			idx = 4;
+			break;
+		default:
+			idx = 5;
+	}
+	value->pkt_size_hist[idx]++;
+
+	if( (value->min_ttl == 0) || (ttl < value->min_ttl) )
+		value->min_ttl = ttl;
+	if( ttl > value->max_ttl )
+		value->max_ttl = ttl;
+	switch ( ttl ) {
+		case 1:
+			idx = 0;
+			break;
+		case 2 ... 5:
+			idx = 1;
+			break;
+		case 6 ... 32:
+			idx = 2;
+			break;
+		case 33 ... 64:
+			idx = 3;
+			break;
+		case 65 ... 96:
+			idx = 4;
+			break;
+		case 97 ... 128:
+			idx = 5;
+			break;
+		case 129 ... 160:
+			idx = 6;
+			break;
+		case 161 ... 192:
+			idx = 7;
+			break;
+		case 193 ... 224:
+			idx = 8;
+			break;
+		case 225 ... 255:
+			idx = 9;
+	}
+	value->pkt_ttl_hist[idx]++;
+
+
+	return 1;
+}
+
+static __always_inline int update_tcp_stats(struct flow_info *value, struct tcphdr *tcph)
+{
+	__u16 flags;
+
+	union tcp_word_hdr *twh = (union tcp_word_hdr *) tcph;
+
+	flags = twh->words[3] & htonl(0x00FF0000);
+	value->cumulative_flags |= flags;
+	
+	return 1;
+}
+
+
 #ifdef __BCC__
 BCC_SEC("flowmon")
 #else
@@ -529,13 +665,14 @@ int  flow_label_stats(struct __sk_buff *skb)
 	if ( !value )
 		value = &info;
 	
-	/* TODO: Add real statistics here. */
-	value->pkts = 3;
-	value->bytes = 46;
+	update_frame_stats(value, ts);
+	update_ip_stats(value, iph4);
+	if ( ip_proto == IPPROTO_TCP )
+		update_tcp_stats(value, tcphdr);
 
 	bpf_debug("Checkpoint 4 - key.proto: %d", key.proto);
 
-	 bpf_map_update_elem(&flowmon_stats, &key, value, BPF_ANY); 
+	bpf_map_update_elem(&flowmon_stats, &key, value, BPF_ANY); 
 
 	/*
 	int k = 1;

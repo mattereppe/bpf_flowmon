@@ -28,8 +28,13 @@ struct flow_info {
 	__u64	first_seen;		/* Epoch of the first packet of this flow (us). */
 	__u64	last_seen;	  	/* Epoch of the last packet seen so far (us). */
 	__u32	pkts;		    	/* Cumulative number of packets. */
-	__u32	bytes;		    	/* Cumulative number of bytes. */
 	__u32	jitter;			/* Cumulative delays between packets. */
+
+	/* IP-related filds and measurements. */
+	__u8 	version;		/* Version (4/6) */
+	__u8	tos;		   	/* TOS/DSCP (IPv4) or Traffic Class (IPv6). */	
+	__u32	fl;			/* Flow label (IPv6 only). */
+	__u32	bytes;		    	/* Cumulative number of bytes. */
 	__u16	min_pkt_len;	 	/* Smallest IP packet seen in the flow. */
 	__u16	max_pkt_len; 		/* Biggest IP packet seen in the flow. */
 	__u16	pkt_size_hist[6];	/* [0]: pkts up to 128 bytes;
@@ -39,9 +44,11 @@ struct flow_info {
 					 * [4]: pkts from 1024 to 1514 bytes;
 					 * [5]: pkts over 1514 bytes.
 					 */
+	__u8	min_ttl;		/* Min TTL (IPv4) or Hop Limit (IPv6). */
+	__u8	max_ttl;		/* Max TTL (IPv4) or Hop Limit (IPv6). */
 	__u16	pkt_ttl_hist[10];	/* [0]: pkts with TTL=1;
 					 * [1]: pkts with TTL>1 and TTL<=5;
-					 * [2]: packets with TTL > 32 and <= 64;
+					 * [2]: packets with TTL > 5 and <= 32;
 					 * [3]: packets with TTL > 32 and <= 64;
 					 * [4]: packets with TTL > 64 and <= 96;
 					 * [5]: packets with TTL > 96 and <= 128;
@@ -51,15 +58,8 @@ struct flow_info {
 					 * [9]: packets with TTL > 224 and <= 255.
 					 */
 
-	/* IP-related filds and measurements. */
-	__u8 	version;		/* Version (4/6) */
-	__u8	tos;		   	/* TOS/DSCP (IPv4) or Traffic Class (IPv6). */	
-	__u32	fl;			/* Flow label (IPv6 only). */
-	__u8	min_ttl;		/* Min TTL (IPv4) or Hop Limit (IPv6). */
-	__u8	max_ttl;		/* Max TTL (IPv4) or Hop Limit (IPv6). */
-
 	/* TCP-related fields. */
-	__u8		cumulative_flags; /* Cumulative TCP flags seen in all packets so far. */
+	__u8	cumulative_flags;	/* Cumulative TCP flags seen in all packets so far. */
 	__u16	retr_pkts;		/* Total number of retrasmitted packets. */
 	__u32	retr_bytes;		/* Total number of retransmitted bytes. */
 	__u16	ooo_pkts;		/* Total number of out-of-order packets. */
