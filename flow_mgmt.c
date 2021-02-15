@@ -110,7 +110,31 @@ static int flow_scan(int fd)
    return 0;
 }
 
-static void flow_poll(int map_fd, int interval)
+static int flow_dump(int fd, char *filename)
+{
+	struct flow_id key = { 0 }, next_key;
+	struct flow_info value = { 0 };
+
+	/* Browse the whole map and prints all relevant flow info. */
+	while ( bpf_map_get_next_key(fd, &key, &next_key) == 0 ) {
+		if ((bpf_map_lookup_elem(fd, &next_key, &value)) != 0) {
+			fprintf(stderr,
+				"ERR: bpf_map_lookup_elem failed key:0x%p\n", &next_key);
+			return -1; /* Maybe we could just go on with other keys... TODO */
+		}
+
+		flow_print(&next_key, &value);
+		if ( flow_to_remove(&next_key, &value) )
+			bpf_map_delete_elem(fd, &next_key);
+
+
+		key = next_key;
+	}
+
+   return 0;
+}
+
+void flow_poll(int map_fd, int interval)
 {
 	/* Trick to pretty printf with thousands separators use %' */
 	setlocale(LC_NUMERIC, "en_US");
@@ -142,3 +166,10 @@ void flow_merge(int map_fd, int map_fd_out, int interval)
 	}
 }
 
+void flow_mon(int fd, int interval, char *filename)
+{
+	while(1) {
+		flow_dump(fd, filename);
+		usleep(interval*MICROSEC_PER_SEC);
+	}
+}

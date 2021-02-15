@@ -19,7 +19,8 @@
 #include "flow_mgmt.h"
 
 #define PINFILENAMELEN 40
-static const char *default_map_filename = "/sys/fs/bpf/tc/globals/tc_flowmon";
+static const char *default_map_filename = "/sys/fs/bpf/tc/globals/flowmon_stats";
+static const char *default_map_path = "/sys/fs/bpf/tc/globals/";
 int verbose = 1;
 
 static int __check_map_fd_info(int map_fd, struct bpf_map_info *info,
@@ -94,14 +95,31 @@ int main(int argc, char **argv)
 	const char *map_filename = NULL;
 	char pinned_file[PINFILENAMELEN];
 	int interval = 1;
-	int map_fd_in, map_fd_out = -1;
+	int map_fd = -1;
 	int ret, opt;
 
-	while ((opt = getopt(argc, argv, "f:i:qv") ) != -1 )
+	while ((opt = getopt(argc, argv, "f:p:i:qv") ) != -1 )
 	{
 		switch (opt) {
 			case 'f':
 				map_filename = optarg;
+				break;
+			case 'p':
+				if( (strlen(map_filename) + 1) > PINFILENAMELEN )
+				{
+					fprintf(stderr, "Internal path for pinning the map too long!\n");
+					fprintf(stderr, "This is very strange, and shouldn't happen.\n");
+					exit(-1);
+				}
+				strcpy(pinned_file, default_map_path);
+				if( (strlen(pinned_file) + strlen(optarg) + 1) 
+						> PINFILENAMELEN )
+				{
+					fprintf(stderr, "Filename for pinning the map too long!\n");
+					exit(-1);
+				}
+				strcat(pinned_file, optarg);
+				map_filename = pinned_file;
 				break;
 			case 'i':
 				interval = atoi(optarg);
@@ -127,53 +145,27 @@ int main(int argc, char **argv)
 		goto out;
 	}
 
-	if( (strlen(map_filename) + 4 + 1) > PINFILENAMELEN )
-	{
-		fprintf(stderr, "Filename for pinning the map too long!\n");
-		goto out;
-	}
-		
-	/* Open map for ingress traffic. */
-	strcpy(pinned_file, map_filename);
-	strcat(pinned_file, "_in");
-	map_fd_in = bpf_obj_get(pinned_file);
-	if( map_fd_in < 0 ) {
+	map_fd = bpf_obj_get(map_filename);
+	if( map_fd < 0 ) {
 		fprintf(stderr, "bpf_obj_get(%s): %s[%d]\n",
-				pinned_file, strerror(errno), errno);
+				map_filename, strerror(errno), errno);
 		goto out;
 	}
 
-	if( (ret = check_map_fd(map_fd_in)) < 0 ) {
-		fprintf(stderr, "Ingress map descriptor not compliant with what expected!\n");
+	if( (ret = check_map_fd(map_fd)) < 0 ) {
+		fprintf(stderr, "Map descriptor not compliant with what expected!\n");
 		goto out;
 	}
 
-	/* Open map for egress traffic. */
-	strcpy(pinned_file, map_filename);
-	strcat(pinned_file, "_out");
-	map_fd_out = bpf_obj_get(pinned_file);
-	if( map_fd_out < 0 ) {
-		fprintf(stderr, "bpf_obj_get(%s): %s[%d]\n",
-				pinned_file, strerror(errno), errno);
-		goto out;
-	}
-
-	if( (ret = check_map_fd(map_fd_out)) < 0 ) {
-		fprintf(stderr, "Ingress map descriptor not compliant with what expected!\n");
-		goto out;
-	}
-
-	// flow_poll(map_fd_in, interval);
+	flow_poll(map_fd, interval);
 	
-	flow_merge(map_fd_in, map_fd_out, interval);
+	//flow_merge(map_fd_in, map_fd_out, interval);
 
 	ret = 0;
 
 out:
-	if( map_fd_in != -1 )
-		close(map_fd_in);
-	if( map_fd_out != -1 )
-		close(map_fd_out);
+	if( map_fd != -1 )
+		close(map_fd);
 
 	return ret;
 }

@@ -52,12 +52,32 @@
 #ifdef __BCC__
 BPF_ARRAY(fl_stats, __u32, NBINS); /* TODO */
 #else
-struct bpf_map_def SEC("maps") flowmon_stats = {
-	.type = BPF_MAP_TYPE_HASH,
-	.key_size = sizeof(struct flow_id),
-	.value_size = sizeof(struct flow_info),
-	.max_entries = MAXFLOWS,
-	.map_flags = BPF_ANY
+/* The standard way. Fully compatible with all tools, but 
+ * needs an external program to be pinned and shared between
+ * multiple program instances.
+ */
+/*
+ * struct bpf_map_def SEC("maps") flowmon_stats = {
+ * 	.type = BPF_MAP_TYPE_HASH,
+ * 	.key_size = sizeof(struct flow_id),
+ * 	.value_size = sizeof(struct flow_info),
+ * 	.max_entries = MAXFLOWS,
+ * 	.map_flags = BPF_ANY
+ * };
+ */
+
+/* The iproute2 way. This provides additional metadata for
+ * iproute2, especially to automatically pin the map and
+ * share it with among instances.
+ * See the full description from the Cilium project:
+ * https://docs.cilium.io/en/latest/bpf/
+ */
+struct bpf_elf_map SEC("maps") flowmon_stats = {
+    .type           = BPF_MAP_TYPE_HASH,
+    .size_key       = sizeof(struct flow_id),
+    .size_value     = sizeof(struct flow_info),
+    .pinning        = PIN_GLOBAL_NS, /* Alternatives: PIN_OBJECT_NS, PIN_NONE */
+    .max_elem       = MAXFLOWS,
 };
 
 /*

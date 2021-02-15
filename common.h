@@ -15,7 +15,7 @@
 struct flow_id {
 		__be32	saddr;
 		__be32	daddr;
-		__u8		proto;
+		__u8	proto;
 		__be16	sport;			/* "id" for ICM Echo request/reply */
 		__be16	dport;			/* "Seq" for ICMP Echo request/reply */
 };
@@ -72,6 +72,14 @@ struct flow_info {
 	__u16	max_wndw;		/* Max TCP window. */
 
 	/* Other NetFlow or IPFIX fields are L7- or mgmt specifics and are not collected through packets. */
+};
+
+/* TODO: Wanna use different maps for IPv6? This would save some space in 
+ * the key for IPv4 flows.
+ */
+struct map_fds {
+	int ingress; /* The fd for the map holding incoming packets. */
+	int egress; /* The fd for the map holding outcoming packets. */
 };
 
 /* Exit return codes */
