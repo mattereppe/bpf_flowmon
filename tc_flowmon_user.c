@@ -85,27 +85,30 @@ void usage(const char *prog_name)
 	printf("Usage: %s [options]\n", prog_name);
 
 	printf("\nwhere options can be:\n");
-	printf("-f <filename>: pinned filename for the map\n");
+	printf("-f <filename>: pinned filename for the map (full path)\n");
+	printf("-p <filename>: pinned filename for the map (use default path)\n");
 	printf("-i <interval>: reporting period in sec [default=1s; 0=print once and exit]\n");
+	printf("-d <dir>: directory where to save dumped flows (default to current dir)\n");
 	printf("q|v: quiet/verbose mode [default to: verbose]\n");
 }
 
 int main(int argc, char **argv)
 {
 	const char *map_filename = NULL;
+	const char *out_path = NULL;
 	char pinned_file[PINFILENAMELEN];
 	int interval = 1;
 	int map_fd = -1;
 	int ret, opt;
 
-	while ((opt = getopt(argc, argv, "f:p:i:qv") ) != -1 )
+	while ((opt = getopt(argc, argv, "f:p:i:d:qv") ) != -1 )
 	{
 		switch (opt) {
 			case 'f':
 				map_filename = optarg;
 				break;
 			case 'p':
-				if( (strlen(map_filename) + 1) > PINFILENAMELEN )
+				if( (strlen(default_map_path) + 1) > PINFILENAMELEN )
 				{
 					fprintf(stderr, "Internal path for pinning the map too long!\n");
 					fprintf(stderr, "This is very strange, and shouldn't happen.\n");
@@ -123,6 +126,9 @@ int main(int argc, char **argv)
 				break;
 			case 'i':
 				interval = atoi(optarg);
+				break;
+			case 'd':
+				out_path = optarg;
 				break;
 			case 'v': 
 				verbose = true;
@@ -157,10 +163,8 @@ int main(int argc, char **argv)
 		goto out;
 	}
 
-	flow_poll(map_fd, interval);
+	flow_poll(map_fd, interval, out_path);
 	
-	//flow_merge(map_fd_in, map_fd_out, interval);
-
 	ret = 0;
 
 out:

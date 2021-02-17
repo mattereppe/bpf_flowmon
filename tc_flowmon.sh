@@ -11,8 +11,7 @@ then
 	exit -1
 fi
 
-echo $cmd
-
+cmd=$@
 case $cmd in
 
 	start)

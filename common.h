@@ -12,6 +12,7 @@
  *	Fields are currently sized for IPv4. 
  *	TODO: add support for IPv6.
  */
+#ifdef __FLOW_IPV4__
 struct flow_id {
 		__be32	saddr;
 		__be32	daddr;
@@ -19,6 +20,16 @@ struct flow_id {
 		__be16	sport;			/* "id" for ICM Echo request/reply */
 		__be16	dport;			/* "Seq" for ICMP Echo request/reply */
 };
+#endif
+#ifdef __FLOW_IPV6__
+struct flow_id {
+		__u8	saddr[16];
+		__u8	daddr[16];
+		__u8	proto;
+		__be16	sport;			/* "id" for ICM Echo request/reply */
+		__be16	dport;			/* "Seq" for ICMP Echo request/reply */
+};
+#endif
 
 /* Define the data collected for each flow.
  *	TODO: add support for more statistics.
@@ -29,6 +40,7 @@ struct flow_info {
 	__u64	last_seen;	  	/* Epoch of the last packet seen so far (us). */
 	__u32	pkts;		    	/* Cumulative number of packets. */
 	__u32	jitter;			/* Cumulative delays between packets. */
+	__u8	iface[16];		/* Capture interface. */
 
 	/* IP-related filds and measurements. */
 	__u8 	version;		/* Version (4/6) */

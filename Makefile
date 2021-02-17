@@ -27,9 +27,10 @@ EXTRA_DEPS +=
 #CFLAGS += -I/home/debian/headers/
 #CFLAGS += -I/usr/include/x86_64-linux-gnu/
 #LDFLAGS ?= -L$(LIBBPF_DIR)
+CFLAGS += -D __FLOW_IPV4__
 
 #BPF_CFLAGS ?= -I$(LIBBPF_DIR)/build/usr/include/ -I/home/debian/xdp-tutorial/headers/
-BPF_CFLAGS += -I/usr/include/x86_64-linux-gnu/ -D _DEBUG_
+BPF_CFLAGS += -I/usr/include/x86_64-linux-gnu/ -D _DEBUG_ -D __BPF_TRACING__ -D __FLOW_IPV4__ 
 #BPF_CFLAGS += -I/usr/include/x86_64-linux-gnu/ 
 # LIBBPF headers are installed in /usr/include/bpf
 
@@ -62,7 +63,6 @@ $(USER_TARGETS): %: %.c  Makefile $(KERN_USER_H) $(EXTRA_DEPS) $(USER_OBJ) $(USE
 $(XDP_OBJ): %.o: %.c  Makefile $(KERN_USER_H) $(EXTRA_DEPS)
 	$(CLANG) -S \
             -target bpf \
-            -D __BPF_TRACING__ -D _DEBUG_ \
             $(BPF_CFLAGS) \
             -Wall \
             -Wno-unused-value \
