@@ -13,6 +13,7 @@
 
 #include <net/if.h>
 #include <linux/if_link.h> /* depend on kernel-headers installed */
+#include <linux/icmp.h>
 #include <arpa/inet.h>
 
 #include "common.h"
@@ -58,8 +59,58 @@ extern int verbose;
 #define ADDRSTRLEN INET6_ADDRSTRLEN
 #endif
 
+static void _debug_print_flow_id(const struct flow_id *key)
+{
+	printf("Source addr: %d\n", key->saddr);
+	printf("Dest   addr: %d\n", key->daddr);
+	printf("Proto      : %d\n", key->proto);
+	printf("Source port: %d\n", key->sport);
+	printf("Dest   port: %d\n", key->dport);
+}
+
+static void _debug_dump_flow_id(const struct flow_id *key)
+{
+	const unsigned char *bin;
+
+	bin = (const unsigned char*)key;
+	printf("key dump: ");
+	for(unsigned int i=0; i<16; i++)
+		printf("%02x ", bin[i]);
+	printf("\n");
+}
+
+static unsigned int get_icmp_peer_type(const unsigned int type)
+{
+	switch ( type ) {
+		case ICMP_ECHOREPLY:
+			return ICMP_ECHO;
+		case ICMP_ECHO:
+			return ICMP_ECHOREPLY;
+		case ICMP_TIMESTAMP:
+			return ICMP_TIMESTAMPREPLY;
+		case ICMP_TIMESTAMPREPLY:
+			return ICMP_TIMESTAMP;
+		case ICMP_INFO_REQUEST:
+			return ICMP_INFO_REPLY;
+		case ICMP_INFO_REPLY:
+			return ICMP_INFO_REQUEST;
+		case ICMP_ADDRESS:
+			return ICMP_ADDRESSREPLY;
+		case ICMP_ADDRESSREPLY:
+			return ICMP_ADDRESS;
+		default:
+			return type;
+	}
+}
+
 static void key_switch(const struct flow_id *key, struct flow_id *key2)
 {
+	/* Note that struct flow_id is padded to 16B. 
+	 * Unfortunately, padding bytes are used when computing the hash,
+	 * so it is important to have all of them set to 0.
+	 */
+	memset((void *)key2, 0, sizeof(struct flow_id));
+
 #ifdef __FLOW_IPV4__
 	key2->saddr = key->daddr;
 	key2->daddr = key->saddr;
@@ -69,8 +120,16 @@ static void key_switch(const struct flow_id *key, struct flow_id *key2)
 	memcpy(key2->daddr, key->saddr, 16);
 #endif
 	key2->proto = key->proto;
-	key2->sport = key->dport;
-	key2->dport = key->sport;
+	switch ( key->proto) {
+		case IPPROTO_ICMP:
+			key2->sport = get_icmp_peer_type(key->sport);
+			key2->dport = key->dport;
+			break;
+		default:
+			key2->sport = key->dport;
+			key2->dport = key->sport;
+	}
+
 }
 
 
@@ -155,7 +214,7 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 		fprintf(fd, "%s\t",ip_addr);
 	fprintf(fd, "%d\t", fkey->proto);
 	fprintf(fd, "%d\t", fkey->sport);
-	fprintf(fd, "%d\t", fkey->sport);
+	fprintf(fd, "%d\t", fkey->dport);
 
 	/* Print statistics. */
 	fprintf(fd, "%lld\t", fvalue->first_seen);
@@ -246,14 +305,15 @@ static int flow_scan(int fd, int op, FILE *out)
 {
 	struct flow_id key = { 0 }, key2, next_key;
 	struct flow_info value = { 0 }, value2 = { 0 };
-	int bidirectional = 0;
+	unsigned int bidirectional = 0;
+	unsigned int count = 0;
 
 	/* Browse the whole map and prints all relevant flow info. */
 	while ( bpf_map_get_next_key(fd, &key, &next_key) == 0 ) {
 		key = next_key;
 		if ((bpf_map_lookup_elem(fd, &key, &value)) != 0) {
 			fprintf(stderr,
-				"ERR: bpf_map_lookup_elem failed key:0x%p\n", &key);
+				"ERR: bpf_map_lookup_elem failed key3:0x%p\n", &key);
 			return -1; /* Maybe we could just go on with other keys... TODO */
 		}
 
@@ -272,12 +332,15 @@ static int flow_scan(int fd, int op, FILE *out)
 				if( ( flow_to_remove(&key, &value) > 0 ) && 
 						( flow_to_remove(&key2, &value2) > 0 ) ) {
 					bpf_map_delete_elem(fd, &key);
-					/*if( bidirectional == 1 )
-						bpf_map_delete_elem(fd, &key2);*/
+					if( bidirectional == 1 )
+						bpf_map_delete_elem(fd, &key2); 
 					flow_merge(&key, &value, &key2, &value2, out);	
 				}
+				else
+					count++;
 				break;
 			case OP_COUNT:
+				count++;
 				break;
 			case OP_DUMP:
 				flow_print(&key, &value, out);
@@ -287,7 +350,7 @@ static int flow_scan(int fd, int op, FILE *out)
 
 	}
 
-   return 0;
+   return count;
 }
 
 static int flow_dump(int fd, char *filename)
@@ -333,6 +396,7 @@ void flow_poll2(int map_fd, int interval)
 void flow_poll(int map_fd, int interval, const char *out_path)
 {
 	FILE *out=stdout;
+	unsigned int active = 0;
 
 	/* Trick to pretty printf with thousands separators use %' */
 	setlocale(LC_NUMERIC, "en_US");
@@ -346,7 +410,8 @@ void flow_poll(int map_fd, int interval, const char *out_path)
 		/* TODO: peridically change the filename/folder
 		 * to organize the data into multiple files.
 		 */
-		flow_scan(map_fd, OP_PURGE, out);
+		active = flow_scan(map_fd, OP_PURGE, out);
+		printf("Active unidirectional flows: %d\n", active);
 		usleep(interval*MICROSEC_PER_SEC);
 	}
 }
@@ -355,6 +420,7 @@ void flow_mon(int fd, int interval, char *outpath)
 {
 	while(1) {
 		/* flow_dump(fd, filename); */
+		flow_poll2(fd,interval );
 		flow_poll(fd, interval, outpath);
 		usleep(interval*MICROSEC_PER_SEC);
 	}

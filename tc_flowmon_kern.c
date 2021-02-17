@@ -441,8 +441,8 @@ static __always_inline int process_icmp_header(struct hdr_cursor *nh,
 	 * for the names. 
 	 * TODO: check if this works for the monitoring purposes.
 	 */
-	key->sport = bpf_ntohs((*icmphdr)->type);
-	key->dport = bpf_ntohs((*icmphdr)->code);
+	key->sport = ((*icmphdr)->type);
+	key->dport = ((*icmphdr)->code);
 
 	return len;
 }

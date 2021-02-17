@@ -16,9 +16,9 @@
 struct flow_id {
 		__be32	saddr;
 		__be32	daddr;
-		__u8	proto;
 		__be16	sport;			/* "id" for ICM Echo request/reply */
 		__be16	dport;			/* "Seq" for ICMP Echo request/reply */
+		__u8	proto;			/* This position is better for padding. */
 };
 #endif
 #ifdef __FLOW_IPV6__

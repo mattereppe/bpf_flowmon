@@ -8,7 +8,7 @@ CLANG ?= clang
 CC := gcc
 
 # Dependencies
-USER_DEP := 
+USER_DEP := *.h
 
 # Valid definition for all possible targets
 XDP_C = ${XDP_TARGETS:=.c}
@@ -21,7 +21,7 @@ LIBBPF_DIR = /usr/lib64/
 #OBJECT_LIBBPF = $(LIBBPF_DIR)/libbpf.a
 OBJECT_LIBBPF = libbpf.a
 
-EXTRA_DEPS += 
+EXTRA_DEPS += *.h
 
 #CFLAGS ?= -I$(LIBBPF_DIR)/build/usr/include/ -g
 #CFLAGS += -I/home/debian/headers/
