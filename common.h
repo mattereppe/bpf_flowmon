@@ -36,10 +36,10 @@ struct flow_id {
  */
 struct flow_info {
 	/* Generic flow information (for all protocols) */
-	__u64	first_seen;		/* Epoch of the first packet of this flow (us). */
-	__u64	last_seen;	  	/* Epoch of the last packet seen so far (us). */
+	__u64	first_seen;		/* Epoch of the first packet of this flow (ns). */
+	__u64	last_seen;	  	/* Epoch of the last packet seen so far (ns). */
+	__u64	jitter;			/* Cumulative delays between packets. */
 	__u32	pkts;		    	/* Cumulative number of packets. */
-	__u32	jitter;			/* Cumulative delays between packets. */
 	__u8	iface[16];		/* Capture interface. */
 
 	/* IP-related filds and measurements. */

@@ -7,6 +7,7 @@
 #endif
 
 #include "common.h"
+#include <string.h>
 #include <linux/bpf.h>
 #include <linux/if_vlan.h>
 #include <linux/if_ether.h>		// struct ethhdr
@@ -450,11 +451,16 @@ static __always_inline int process_icmp_header(struct hdr_cursor *nh,
 static __always_inline int update_frame_stats(struct flow_info *value, __u64 ts)
 {
 	value->pkts++;
-	if( value->first_seen == 0 )
+	if( value->first_seen == 0 ) {
 		value->first_seen = ts;
+		value->last_seen = ts;
+		value->jitter = 0;
+	}
 	else
 		value->jitter += ts - value->last_seen;
 	value->last_seen = ts;
+
+	strcpy(value->iface,"Unknown");
 
 	return 1;
 }
@@ -574,8 +580,8 @@ static __always_inline int update_tcp_stats(struct flow_info *value, struct tcph
 	__u16 flags;
 
 	union tcp_word_hdr *twh = (union tcp_word_hdr *) tcph;
+	flags = ntohl(twh->words[3] & htonl(0x00FF0000)) >> 16;
 
-	flags = twh->words[3] & htonl(0x00FF0000);
 	value->cumulative_flags |= flags;
 	
 	return 1;

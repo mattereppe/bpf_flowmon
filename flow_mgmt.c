@@ -23,7 +23,7 @@ extern int verbose;
 
 #define MICROSEC_PER_SEC 1000000 /* 10^6 */
 #define NANOSEC_PER_SEC 1000000000 /* 10^9 */
-#define FLOW_INACTIVE_TIMEOUT_SEC 5
+#define FLOW_INACTIVE_TIMEOUT_SEC 50
 
 /* Flow termination reasons:
  * 	1 - Flow terminated normally (connection closed).
@@ -40,11 +40,11 @@ extern int verbose;
 /* TCP flags
  * (Unfortunately the macros in tcp.h apply to an entire tcp word.
  */
-#define TCP_FLAG_ACK	htons(0x0010)
-#define TCP_FLAG_PSH 	htons(0x0008)
-#define TCP_FLAG_RST	htons(0x0004)
-#define TCP_FLAG_SYN  	htons(0x0002)
-#define TCP_FLAG_FIN  	htons(0x0001)
+#define TCP_FLAG_ACK	0x0010
+#define TCP_FLAG_PSH 	0x0008
+#define TCP_FLAG_RST	0x0004
+#define TCP_FLAG_SYN  	0x0002
+#define TCP_FLAG_FIN  	0x0001
 
 /* Operations on the flow list
  */
@@ -217,10 +217,6 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 	fprintf(fd, "%d\t", fkey->dport);
 
 	/* Print statistics. */
-	fprintf(fd, "%lld\t", fvalue->first_seen);
-	fprintf(fd, "%lld\t", bvalue->first_seen);
-	fprintf(fd, "%lld\t", fvalue->last_seen);
-	fprintf(fd, "%lld\t", bvalue->last_seen);
 	if ( fvalue->iface != NULL )
 		fprintf(fd, "%s\t", fvalue->iface);
 	else
@@ -229,10 +225,14 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 		fprintf(fd, "%s\t", bvalue->iface);
 	else
 		fprintf(fd, "UNKNOWN\t");
+	fprintf(fd, "%lld\t", fvalue->first_seen);
+	fprintf(fd, "%lld\t", bvalue->first_seen);
+	fprintf(fd, "%lld\t", fvalue->last_seen);
+	fprintf(fd, "%lld\t", bvalue->last_seen);
+	fprintf(fd, "%lld\t", fvalue->jitter);
+	fprintf(fd, "%lld\t", bvalue->jitter);
 	fprintf(fd, "%d\t", fvalue->pkts);
 	fprintf(fd, "%d\t", bvalue->pkts);
-	fprintf(fd, "%d\t", fvalue->jitter);
-	fprintf(fd, "%d\t", bvalue->jitter);
 
 	fprintf(fd, "%d\t", fvalue->version);
 	fprintf(fd, "%d\t", bvalue->version);
