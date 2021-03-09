@@ -573,27 +573,24 @@ static __always_inline int update_ip_stats(struct flow_info *value, struct iphdr
 	return len;
 }
 
-//static __always_inline int update_tcp_stats(struct flow_info *value, struct tcphdr *tcph, unsigned int tcp_len)
-static __always_inline int update_tcp_stats(struct flow_info *value, struct tcphdr *tcph)
+static __always_inline int update_tcp_stats(struct flow_info *value, struct tcphdr *tcph, unsigned int tcp_len)
+//static __always_inline int update_tcp_stats(struct flow_info *value, struct tcphdr *tcph)
 {
 	__u16 flags;
-	//__u16 wndw;
-	//__u32 seq;
+	__u16 wndw;
+	__u32 seq;
 
 	union tcp_word_hdr *twh = (union tcp_word_hdr *) tcph;
 	flags = ntohl(twh->words[3] & htonl(0x00FF0000)) >> 16;
 
 	value->cumulative_flags |= flags;
 
-	/*
 	wndw = ntohs(tcph->window);
 	if( wndw < value->min_win_bytes )
 		value->min_win_bytes = wndw;
 	if( wndw > value->max_win_bytes)
 		value->max_win_bytes = wndw;
-		*/
 	
-	/*
 	seq = ntohl(tcph->seq);
 	if( seq > value->last_seq )
 		value->last_seq = seq;
@@ -601,17 +598,18 @@ static __always_inline int update_tcp_stats(struct flow_info *value, struct tcph
 		value->retr_pkts++;
 		value->retr_bytes += tcp_len - tcph->doff*4;
 	}
-	*/
 	
 	return 1;
 }
 
-void init_info(struct flow_info *info)
+static __always_inline void init_info(struct flow_info *info)
 {
-	/* Initialize all fields that store min values. */
-	info->min_pkt_len = 0xffff;
-	info->min_ttl = 0xff;
-	info->min_win_bytes = 0xffff;
+	if( info ) {
+		/* Initialize all fields that store min values. */
+		info->min_pkt_len = 0xffff;
+		info->min_ttl = 0xff;
+		info->min_win_bytes = 0xffff;
+	}
 }
 
 #ifdef __BCC__
@@ -709,16 +707,17 @@ int  flow_label_stats(struct __sk_buff *skb)
 		init_info(&info);
 		value = &info;
 	}
+	else
+		value->ifindex = skb->ifindex;
 	
-	value->ifindex = skb->ifindex;
 	update_frame_stats(value, ts);
-	update_ip_stats(value, iph4);
-	//unsigned int ip_tot_len = update_ip_stats(value, iph4);
+	//update_ip_stats(value, iph4);
+	unsigned int ip_tot_len = update_ip_stats(value, iph4);
 	if ( ip_proto == IPPROTO_TCP ) {
 		/* TODO: What happens in case options are present in IP? */
-	//	unsigned int tcp_len = ip_tot_len - ((void *)tcphdr - (void *)iph4);
-		update_tcp_stats(value, tcphdr);
-		//update_tcp_stats(value, tcphdr, tcp_len);
+		unsigned int tcp_len = ip_tot_len - ((void *)tcphdr - (void *)iph4);
+		//update_tcp_stats(value, tcphdr);
+		update_tcp_stats(value, tcphdr, tcp_len);
 	}
 
 	bpf_map_update_elem(&flowmon_stats, &key, value, BPF_ANY); 
