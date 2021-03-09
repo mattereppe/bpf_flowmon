@@ -259,7 +259,7 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 		fprintf(fd, "%u\t", fvalue->pkt_ttl_hist[i]);
 	}
 	for(unsigned int i=0; i<10; i++) {
-		fprintf(fd, "%d\t", bvalue->pkt_ttl_hist[i]);
+		fprintf(fd, "%u\t", bvalue->pkt_ttl_hist[i]);
 	}
 
 	fprintf(fd, "%08x\t", fvalue->cumulative_flags);
@@ -280,10 +280,6 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 	fprintf(fd, "%d\t", bvalue->mss);
 	fprintf(fd, "%d\t", fvalue->wndw_scale);
 	fprintf(fd, "%d\t", bvalue->wndw_scale);
-	fprintf(fd, "%d\t", fvalue->min_wndw);
-	fprintf(fd, "%d\t", bvalue->min_wndw);
-	fprintf(fd, "%d\t", fvalue->max_wndw);
-	fprintf(fd, "%d\t", bvalue->max_wndw);
 	
 	fprintf(fd, "\n");
 	fflush(fd);
