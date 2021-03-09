@@ -40,7 +40,7 @@ struct flow_info {
 	__u64	last_seen;	  	/* Epoch of the last packet seen so far (ns). */
 	__u64	jitter;			/* Cumulative delays between packets. */
 	__u32	pkts;		    	/* Cumulative number of packets. */
-	__u8	iface[16];		/* Capture interface. */
+	__u32	ifindex;		/* Capture interface. */
 
 	/* IP-related filds and measurements. */
 	__u8 	version;		/* Version (4/6) */
@@ -71,17 +71,16 @@ struct flow_info {
 					 */
 
 	/* TCP-related fields. */
+	__u32	last_seq;		/* Last sequence number seen (used for computing retransmissions. */
 	__u8	cumulative_flags;	/* Cumulative TCP flags seen in all packets so far. */
 	__u16	retr_pkts;		/* Total number of retrasmitted packets. */
 	__u32	retr_bytes;		/* Total number of retransmitted bytes. */
 	__u16	ooo_pkts;		/* Total number of out-of-order packets. */
 	__u32	ooo_bytes;		/* Total number of out-of-order bytes. */
-	__u16	min_win_bytes;		/* Min TCP Windows. */
-	__u16	max_win_bytes;		/* Max TCP Windows. */
+	__u16	min_win_bytes;		/* Min TCP Window. */
+	__u16	max_win_bytes;		/* Max TCP Window. */
 	__u16	mss;			/* TCP Max Segment Size. */
 	__u8	wndw_scale;		/* TCP Window Scale. */
-	__u16	min_wndw;		/* Min TCP Window. */
-	__u16	max_wndw;		/* Max TCP window. */
 
 	/* Other NetFlow or IPFIX fields are L7- or mgmt specifics and are not collected through packets. */
 };

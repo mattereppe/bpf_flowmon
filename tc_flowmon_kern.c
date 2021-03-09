@@ -460,8 +460,6 @@ static __always_inline int update_frame_stats(struct flow_info *value, __u64 ts)
 		value->jitter += ts - value->last_seen;
 	value->last_seen = ts;
 
-	strcpy(value->iface,"Unknown");
-
 	return 1;
 }
 
@@ -509,7 +507,7 @@ static __always_inline int update_ip_stats(struct flow_info *value, struct iphdr
 	value->tos = tos;
 
 	value->bytes += len;
-	if( (value->min_pkt_len == 0)  || (len < value->min_pkt_len) )
+	if( len < value->min_pkt_len) 
 		value->min_pkt_len = len;
 	if( len > value->max_pkt_len )
 		value->max_pkt_len = len;
@@ -534,7 +532,7 @@ static __always_inline int update_ip_stats(struct flow_info *value, struct iphdr
 	}
 	value->pkt_size_hist[idx]++;
 
-	if( (value->min_ttl == 0) || (ttl < value->min_ttl) )
+	if( ttl < value->min_ttl) 
 		value->min_ttl = ttl;
 	if( ttl > value->max_ttl )
 		value->max_ttl = ttl;
@@ -572,21 +570,49 @@ static __always_inline int update_ip_stats(struct flow_info *value, struct iphdr
 	value->pkt_ttl_hist[idx]++;
 
 
-	return 1;
+	return len;
 }
 
+//static __always_inline int update_tcp_stats(struct flow_info *value, struct tcphdr *tcph, unsigned int tcp_len)
 static __always_inline int update_tcp_stats(struct flow_info *value, struct tcphdr *tcph)
 {
 	__u16 flags;
+	//__u16 wndw;
+	//__u32 seq;
 
 	union tcp_word_hdr *twh = (union tcp_word_hdr *) tcph;
 	flags = ntohl(twh->words[3] & htonl(0x00FF0000)) >> 16;
 
 	value->cumulative_flags |= flags;
+
+	/*
+	wndw = ntohs(tcph->window);
+	if( wndw < value->min_win_bytes )
+		value->min_win_bytes = wndw;
+	if( wndw > value->max_win_bytes)
+		value->max_win_bytes = wndw;
+		*/
+	
+	/*
+	seq = ntohl(tcph->seq);
+	if( seq > value->last_seq )
+		value->last_seq = seq;
+	else {
+		value->retr_pkts++;
+		value->retr_bytes += tcp_len - tcph->doff*4;
+	}
+	*/
 	
 	return 1;
 }
 
+void init_info(struct flow_info *info)
+{
+	/* Initialize all fields that store min values. */
+	info->min_pkt_len = 0xffff;
+	info->min_ttl = 0xff;
+	info->min_win_bytes = 0xffff;
+}
 
 #ifdef __BCC__
 BCC_SEC("flowmon")
@@ -679,21 +705,23 @@ int  flow_label_stats(struct __sk_buff *skb)
 	/* Collect the required statistics. */
 	value = bpf_map_lookup_elem(&flowmon_stats, &key); 
 	if ( !value )
+	{
+		init_info(&info);
 		value = &info;
+	}
 	
+	value->ifindex = skb->ifindex;
 	update_frame_stats(value, ts);
 	update_ip_stats(value, iph4);
-	if ( ip_proto == IPPROTO_TCP )
+	//unsigned int ip_tot_len = update_ip_stats(value, iph4);
+	if ( ip_proto == IPPROTO_TCP ) {
+		/* TODO: What happens in case options are present in IP? */
+	//	unsigned int tcp_len = ip_tot_len - ((void *)tcphdr - (void *)iph4);
 		update_tcp_stats(value, tcphdr);
+		//update_tcp_stats(value, tcphdr, tcp_len);
+	}
 
 	bpf_map_update_elem(&flowmon_stats, &key, value, BPF_ANY); 
-
-	/*
-	int k = 1;
-	int v = 3;
-	bpf_map_lookup_elem(&fl_stats, &k);
-	bpf_map_update_elem(&fl_stats, &k, &v, BPF_ANY);
-	*/
 
 	bpf_debug("Just inserted something in the map...");
 

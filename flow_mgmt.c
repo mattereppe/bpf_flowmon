@@ -206,6 +206,7 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 		FILE *fd)
 {
 	char ip_addr[ADDRSTRLEN];
+	char if_name[IF_NAMESIZE];
 
 	/* Print the flow id. */
 	if( inet_ntop(AF_INET, (const void *)(&(fkey->saddr)), ip_addr, ADDRSTRLEN) != 0 )
@@ -217,14 +218,13 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 	fprintf(fd, "%d\t", fkey->dport);
 
 	/* Print statistics. */
-	if ( fvalue->iface != NULL )
-		fprintf(fd, "%s\t", fvalue->iface);
-	else
-		fprintf(fd, "UNKNOWN\t");
-	if ( bvalue->iface != NULL )
-		fprintf(fd, "%s\t", bvalue->iface);
-	else
-		fprintf(fd, "UNKNOWN\t");
+	if( if_indextoname(fvalue->ifindex, if_name) == NULL )
+		strcpy("UNKNOWN", if_name);
+	fprintf(fd, "%s\t",if_name); 	
+	if( if_indextoname(bvalue->ifindex, if_name) == NULL )
+		strcpy("UNKNOWN", if_name);
+	fprintf(fd, "%s\t",if_name); 	
+
 	fprintf(fd, "%lld\t", fvalue->first_seen);
 	fprintf(fd, "%lld\t", bvalue->first_seen);
 	fprintf(fd, "%lld\t", fvalue->last_seen);
@@ -242,23 +242,25 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 	fprintf(fd, "%d\t", bvalue->tos);
 	fprintf(fd, "%d\t", fvalue->bytes);
 	fprintf(fd, "%d\t", bvalue->bytes);
-	fprintf(fd, "%d\t", fvalue->min_pkt_len);
-	fprintf(fd, "%d\t", bvalue->min_pkt_len);
-	fprintf(fd, "%d\t", fvalue->max_pkt_len);
-	fprintf(fd, "%d\t", bvalue->max_pkt_len);
-	/*
+	fprintf(fd, "%u\t", fvalue->min_pkt_len);
+	fprintf(fd, "%u\t", bvalue->min_pkt_len);
+	fprintf(fd, "%u\t", fvalue->max_pkt_len);
+	fprintf(fd, "%u\t", bvalue->max_pkt_len);
+
 	for(unsigned int i=0; i<6; i++)
-		fprintf(fd, "%d\t", fvalue->pkt_size_hist);
+		fprintf(fd, "%u\t", fvalue->pkt_size_hist[i]);
 	for(unsigned int i=0; i<6; i++)
-		fprintf(fd, "%d\t", bvalue->pkt_size_hist);
+		fprintf(fd, "%u\t", bvalue->pkt_size_hist[i]);
 	fprintf(fd, "%d\t", fvalue->min_ttl);
 	fprintf(fd, "%d\t", bvalue->min_ttl);
 	fprintf(fd, "%d\t", fvalue->max_ttl);
 	fprintf(fd, "%d\t", bvalue->max_ttl);
-	for(unsigned int i=0; i<6; i++)
-		fprintf(fd, "%d\t", fvalue->pkt_ttl_hist);
-	for(unsigned int i=0; i<6; i++)
-		fprintf(fd, "%d\t", bvalue->pkt_ttl_hist);
+	for(unsigned int i=0; i<10; i++) {
+		fprintf(fd, "%u\t", fvalue->pkt_ttl_hist[i]);
+	}
+	for(unsigned int i=0; i<10; i++) {
+		fprintf(fd, "%d\t", bvalue->pkt_ttl_hist[i]);
+	}
 
 	fprintf(fd, "%08x\t", fvalue->cumulative_flags);
 	fprintf(fd, "%08x\t", bvalue->cumulative_flags);
@@ -282,9 +284,9 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 	fprintf(fd, "%d\t", bvalue->min_wndw);
 	fprintf(fd, "%d\t", fvalue->max_wndw);
 	fprintf(fd, "%d\t", bvalue->max_wndw);
-	*/
 	
 	fprintf(fd, "\n");
+	fflush(fd);
 
 }
 
