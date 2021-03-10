@@ -48,6 +48,15 @@
 #define EXIT_FAIL_XDP		30
 #define EXIT_FAIL_BPF		40
 
+/* TCP options */
+#define TCP_OPT_END	0
+#define TCP_OPT_NONE	1
+#define TCP_OPT_MSS	2
+#define TCP_OPT_WNDWS	3
+#define TCP_OPT_SACKP	4
+#define TCP_OPT_SACK	5
+#define TCP_OPT_TS	8
+
 /* TODO: Improve performance by using multiple per-cpu hash maps.
  */
 #ifdef __BCC__
@@ -573,24 +582,114 @@ static __always_inline int update_ip_stats(struct flow_info *value, struct iphdr
 	return len;
 }
 
-static __always_inline int update_tcp_stats(struct flow_info *value, struct tcphdr *tcph, unsigned int tcp_len)
+static __always_inline int update_tcp_stats(struct flow_info *value, 
+						struct tcphdr *tcph, 
+						unsigned int tcp_len,
+						void *data_end)
 //static __always_inline int update_tcp_stats(struct flow_info *value, struct tcphdr *tcph)
 {
 	__u16 flags;
 	__u16 wndw;
 	__u32 seq;
+	unsigned int op_tot_len;
+	void *oph = 0;
+	__u16 mss = 0;
+	__u8 wndw_scale;
 
 	union tcp_word_hdr *twh = (union tcp_word_hdr *) tcph;
 	flags = ntohl(twh->words[3] & htonl(0x00FF0000)) >> 16;
 
 	value->cumulative_flags |= flags;
 
-	wndw = ntohs(tcph->window);
+	/* The following code needs to read the options!
+	 * Otherwise wind_scale would not be known.
+	 */
+	wndw = ntohs(tcph->window)*value->wndw_scale;
 	if( wndw < value->min_win_bytes )
 		value->min_win_bytes = wndw;
 	if( wndw > value->max_win_bytes)
 		value->max_win_bytes = wndw;
 	
+	/* Scan and process options. This part should be skipped when
+	 * the corresponding TCP fields are not required.
+	 */
+	op_tot_len = tcph->doff - 5;
+	bpf_debug("op_tot_len = %d\n", op_tot_len);
+	oph = (void *)tcph + 20;
+	if( oph+op_tot_len > data_end )
+		return -1;
+
+
+	/* 10 loops is arbitrary, hoping this could cover most use-cases.
+	 * A fixed boundary is required by the internal verifier.
+	 */
+	for(unsigned int i=0; i<10; i++)
+	{
+		__u8 type;
+		__u8 len;
+		void *data;
+
+		if( oph > data_end || op_tot_len <= 0 )
+			break;
+		type = *((__u8 *)oph);
+		data = oph;
+
+		switch ( type ) {
+			case TCP_OPT_END:
+			case TCP_OPT_NONE:
+				oph++;
+				op_tot_len--;
+				break;
+			case TCP_OPT_MSS:
+				if( oph+4 > data_end )
+					break;
+				len = *((__u8 *)(oph+1));
+				mss = *((unsigned short *)(oph+2));
+				oph+=4;
+				op_tot_len-=4;
+				break;
+			case TCP_OPT_WNDWS:
+				if( oph+3 < data_end )
+					break;
+				len = *((__u8 *)(oph+1));
+				data = oph+2;
+				wndw_scale = *((__u8 *)(oph+2));
+				oph+=3;
+				op_tot_len-=3;
+				break;
+			case TCP_OPT_SACKP:
+				if( oph+2 > data_end)
+					break;
+				oph+=2;
+				op_tot_len-=2;
+				break;
+			case TCP_OPT_SACK:
+				if( oph+2 > data_end)
+					break;
+				len = *((__u8 *)(oph+1));
+				//data = oph+2;
+				oph+=len;
+				op_tot_len-=len;
+				break;
+			case TCP_OPT_TS:
+				if( oph+10 > data_end)
+					break;
+				oph+=10;
+				op_tot_len-=10;
+				break;
+
+		}
+	}
+
+	//value->mss = mss;
+	unsigned short cazzo = mss;
+	cazzo += 3;
+	wndw_scale += 15;
+	//value->wndw_scale = wndw_scale;
+
+	value->mss = tcph->doff;
+
+
 	seq = ntohl(tcph->seq);
 	if( seq > value->last_seq )
 		value->last_seq = seq;
@@ -609,6 +708,7 @@ static __always_inline void init_info(struct flow_info *info)
 		info->min_pkt_len = 0xffff;
 		info->min_ttl = 0xff;
 		info->min_win_bytes = 0xffff;
+		info->wndw_scale = 1;
 	}
 }
 
@@ -627,6 +727,7 @@ int  flow_label_stats(struct __sk_buff *skb)
 	__u32 len = 0;
 	/* __u32 init_value = 1; */
 	int eth_proto, ip_proto = 0;
+	unsigned int ip_tot_len = 0;
 	/* int eth_proto, ip_proto, icmp_type = 0; */
 	struct flow_id key = { 0 }; 
 	struct flow_info info = { 0 };
@@ -712,12 +813,14 @@ int  flow_label_stats(struct __sk_buff *skb)
 	
 	update_frame_stats(value, ts);
 	//update_ip_stats(value, iph4);
-	unsigned int ip_tot_len = update_ip_stats(value, iph4);
+	ip_tot_len = update_ip_stats(value, iph4);
 	if ( ip_proto == IPPROTO_TCP ) {
 		/* TODO: What happens in case options are present in IP? */
+		bpf_debug("ip_tot_len: %d\n", ip_tot_len);
 		unsigned int tcp_len = ip_tot_len - ((void *)tcphdr - (void *)iph4);
+		bpf_debug("tcp_len: %d\n", tcp_len);
 		//update_tcp_stats(value, tcphdr);
-		update_tcp_stats(value, tcphdr, tcp_len);
+		update_tcp_stats(value, tcphdr, tcp_len, data_end);
 	}
 
 	bpf_map_update_elem(&flowmon_stats, &key, value, BPF_ANY); 
