@@ -40,7 +40,6 @@
 {}
 #endif
 
-
 /* Exit return codes */
 #define EXIT_OK 		 0 /* == EXIT_SUCCESS (stdlib.h) man exit(3) */
 #define EXIT_FAIL		 1 /* == EXIT_FAILURE (stdlib.h) man exit(3) */
@@ -56,6 +55,55 @@
 #define TCP_OPT_SACKP	4
 #define TCP_OPT_SACK	5
 #define TCP_OPT_TS	8
+
+struct tcp_opt_none {
+	__u8 type;
+};
+
+struct tcp_opt_mss {
+	__u8 type;
+	__u8 len;
+	__u16 data;
+};
+
+struct tcp_opt_wndw_scale {
+	__u8 type;
+	__u8 len;
+	__u8 data;
+};
+
+struct tcp_opt_sackp {
+	__u8 type;
+	__u8 len;
+};
+
+/* Bypassing the verifier check is not simple with variable data,
+ * but for now I don't need to parse sack data.
+ */
+struct tcp_opt_sack {
+	__u8 type;
+	__u8 len;
+//	__u32 data[8];
+};
+
+struct tcp_opt_ts {
+	__u8 type;
+	__u8 len;
+	__u32 data[2];
+};
+
+struct tcpopt {
+	struct tcp_opt_mss *op_mss;
+	struct tcp_opt_wndw_scale *op_wndw_scale;
+	struct tcp_opt_sackp *op_sackp;
+	struct tcp_opt_sack *op_sack;
+	struct tcp_opt_ts *op_ts;
+};
+
+struct optvalues {
+	__u16* mss;
+	__u8* wndw_scale;
+};
 
 /* TODO: Improve performance by using multiple per-cpu hash maps.
  */
@@ -308,6 +356,128 @@ static __always_inline int parse_udphdr(struct hdr_cursor *nh,
 		return -1;
 
 	return len;
+}
+
+static __always_inline int tcpopt_type(void * tcph, unsigned int offset, void *data_end)
+{
+	struct tcp_opt_none *opn;
+
+	opn = (struct tcp_opt_none *)(tcph+offset);
+
+	if ( opn+1 > data_end )
+		return -1;
+	else
+		return opn->type;
+	
+}
+
+//static __always_inline int parse_tcpopt2(char *opt,
+//					struct tcpopt *oph)
+//{
+//
+//	return 1;
+//}
+
+/*
+ * parse_tcpopt: parse tcp options and returns the length
+ * of the options.
+ * N.B. This implementation works, but it is buggy becase it only
+ * parses the first 5 options. Unfortunately, the combination of 
+ * case switches leads to an unmanageable number of alternative
+ * execution branches that the internal verifier cannot sustain.
+ * I could reach 10 loops with the simpler options, but this does
+ * not work with all possible options. Alternative implementations
+ * should be investigated to improve this part.
+ */
+static __always_inline int parse_tcpopt(struct tcphdr *tcph,
+					void *data_end,
+					struct optvalues value)
+{
+	unsigned short op_tot_len = 0;
+	unsigned short last_op = 0;
+	struct tcp_opt_mss *mss = 0;
+	struct tcp_opt_wndw_scale *wndw_scale = 0;
+	struct tcp_opt_sackp *sackp = 0;
+	struct tcp_opt_sack *sack = 0;
+	struct tcp_opt_ts *ts = 0;
+	unsigned int offset = 20;
+	__u8 type;
+
+	op_tot_len = (tcph->doff - 5)*4;
+
+	if( op_tot_len < 0 )
+		return -1;
+	
+	if( (void *)(tcph+1)+op_tot_len > data_end )
+		return -1;
+
+	bpf_debug("op_tot_len = %d\n", op_tot_len);
+	
+	/* 10 loops is arbitrary, hoping this could cover most use-cases.
+	 * A fixed boundary is required by the internal verifier.
+	 */
+	for(unsigned int i=0; i<5; i++)
+	{
+		type = tcpopt_type((void *) tcph, offset,data_end);
+
+		switch ( type ) {
+			case TCP_OPT_END:
+				last_op = 1;
+			case TCP_OPT_NONE:
+				offset++;
+				op_tot_len--;
+				break;
+			case TCP_OPT_MSS:
+				mss = (struct tcp_opt_mss *)((void *)tcph+offset);
+				if( mss+1 > data_end )
+					return -1;
+				offset+=mss->len;
+				op_tot_len-=mss->len;
+				*value.mss = mss->data;
+				break;
+			case TCP_OPT_WNDWS:
+				wndw_scale = (struct tcp_opt_wndw_scale *)((void *)tcph+offset);
+				if( wndw_scale+1 > data_end )
+					return -1;
+				offset+=wndw_scale->len;
+				op_tot_len-=wndw_scale->len;
+				*value.wndw_scale = wndw_scale->data;
+				break;
+			case TCP_OPT_SACKP:
+				sackp = (struct tcp_opt_sackp *)((void *)tcph+offset);
+				if( sackp+1 > data_end)
+					return -1;
+				offset+=sackp->len;
+				op_tot_len-=sackp->len;
+				// No data read for this option
+				break;
+			case TCP_OPT_SACK:
+				sack = (struct tcp_opt_sack *)((void *)tcph+offset);
+				if( sack+1 > data_end)
+					return -1;
+				offset+=sack->len;
+				op_tot_len-=sack->len;
+				// No data read for this option
+				break;
+			case TCP_OPT_TS:
+				ts = (struct tcp_opt_ts *)((void *)tcph+offset);
+				if( ts+1 > data_end)
+					return -1;
+				offset+=ts->len;
+				op_tot_len-=ts->len;
+				// No data read for this option
+				break;
+			default:
+				last_op = 1;
+				break;
+
+		}
+
+		if ( last_op || op_tot_len <= 0)
+			break;
+	}
+
+	return op_tot_len;
 }
 
 /*
@@ -583,18 +753,18 @@ static __always_inline int update_ip_stats(struct flow_info *value, struct iphdr
 }
 
 static __always_inline int update_tcp_stats(struct flow_info *value, 
+						struct __sk_buff *skb,
 						struct tcphdr *tcph, 
 						unsigned int tcp_len,
 						void *data_end)
 //static __always_inline int update_tcp_stats(struct flow_info *value, struct tcphdr *tcph)
 {
+	//struct tcpopt oph = { 0 };
 	__u16 flags;
 	__u16 wndw;
 	__u32 seq;
 	unsigned int op_tot_len;
-	void *oph = 0;
-	__u16 mss = 0;
-	__u8 wndw_scale;
+	__u8 wndw_scale = 0;
 
 	union tcp_word_hdr *twh = (union tcp_word_hdr *) tcph;
 	flags = ntohl(twh->words[3] & htonl(0x00FF0000)) >> 16;
@@ -613,82 +783,17 @@ static __always_inline int update_tcp_stats(struct flow_info *value,
 	/* Scan and process options. This part should be skipped when
 	 * the corresponding TCP fields are not required.
 	 */
-	op_tot_len = tcph->doff - 5;
-	bpf_debug("op_tot_len = %d\n", op_tot_len);
-	oph = (void *)tcph + 20;
-	if( oph+op_tot_len > data_end )
-		return -1;
+	struct optvalues values;
+	values.mss = &value->mss;
+	values.wndw_scale = &wndw_scale;
+	op_tot_len = parse_tcpopt(tcph, data_end, values);
+
+	
+//	bpf_debug("op_tot_len = %d\n", op_tot_len);
 
 
-	/* 10 loops is arbitrary, hoping this could cover most use-cases.
-	 * A fixed boundary is required by the internal verifier.
-	 */
-	for(unsigned int i=0; i<10; i++)
-	{
-		__u8 type;
-		__u8 len;
-		void *data;
 
-		if( oph > data_end || op_tot_len <= 0 )
-			break;
-		type = *((__u8 *)oph);
-		data = oph;
-
-		switch ( type ) {
-			case TCP_OPT_END:
-			case TCP_OPT_NONE:
-				oph++;
-				op_tot_len--;
-				break;
-			case TCP_OPT_MSS:
-				if( oph+4 > data_end )
-					break;
-				len = *((__u8 *)(oph+1));
-				mss = *((unsigned short *)(oph+2));
-				oph+=4;
-				op_tot_len-=4;
-				break;
-			case TCP_OPT_WNDWS:
-				if( oph+3 < data_end )
-					break;
-				len = *((__u8 *)(oph+1));
-				data = oph+2;
-				wndw_scale = *((__u8 *)(oph+2));
-				oph+=3;
-				op_tot_len-=3;
-				break;
-			case TCP_OPT_SACKP:
-				if( oph+2 > data_end)
-					break;
-				oph+=2;
-				op_tot_len-=2;
-				break;
-			case TCP_OPT_SACK:
-				if( oph+2 > data_end)
-					break;
-				len = *((__u8 *)(oph+1));
-				//data = oph+2;
-				oph+=len;
-				op_tot_len-=len;
-				break;
-			case TCP_OPT_TS:
-				if( oph+10 > data_end)
-					break;
-				oph+=10;
-				op_tot_len-=10;
-				break;
-
-		}
-	}
-
-	//value->mss = mss;
-	unsigned short cazzo = mss;
-	cazzo += 3;
-	wndw_scale += 15;
-	//value->wndw_scale = wndw_scale;
-
-	value->mss = tcph->doff;
-
+	
 
 	seq = ntohl(tcph->seq);
 	if( seq > value->last_seq )
@@ -749,6 +854,7 @@ int  flow_label_stats(struct __sk_buff *skb)
 	len = data_end - data;
 	eth = (struct ethhdr *)data;
 	eth_proto = parse_ethhdr(&nh, data_end, &eth);
+
 
 	/* Check a valid eth proto was found. */
 	if ( eth_proto < 0 ) {
@@ -820,7 +926,7 @@ int  flow_label_stats(struct __sk_buff *skb)
 		unsigned int tcp_len = ip_tot_len - ((void *)tcphdr - (void *)iph4);
 		bpf_debug("tcp_len: %d\n", tcp_len);
 		//update_tcp_stats(value, tcphdr);
-		update_tcp_stats(value, tcphdr, tcp_len, data_end);
+		update_tcp_stats(value, skb, tcphdr, tcp_len, data_end);
 	}
 
 	bpf_map_update_elem(&flowmon_stats, &key, value, BPF_ANY); 
