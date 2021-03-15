@@ -214,8 +214,8 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 	if( inet_ntop(AF_INET, (const void *)(&(fkey->daddr)), ip_addr, ADDRSTRLEN) != 0 )
 		fprintf(fd, "%s\t",ip_addr);
 	fprintf(fd, "%d\t", fkey->proto);
-	fprintf(fd, "%d\t", fkey->sport);
-	fprintf(fd, "%d\t", fkey->dport);
+	fprintf(fd, "%h\t", fkey->sport);
+	fprintf(fd, "%h\t", fkey->dport);
 
 	/* Print statistics. */
 	if( if_indextoname(fvalue->ifindex, if_name) == NULL )
@@ -234,14 +234,14 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 	fprintf(fd, "%d\t", fvalue->pkts);
 	fprintf(fd, "%d\t", bvalue->pkts);
 
-	fprintf(fd, "%d\t", fvalue->version);
-	fprintf(fd, "%d\t", bvalue->version);
-	fprintf(fd, "%d\t", fvalue->fl);
-	fprintf(fd, "%d\t", bvalue->fl);
-	fprintf(fd, "%d\t", fvalue->tos);
-	fprintf(fd, "%d\t", bvalue->tos);
-	fprintf(fd, "%d\t", fvalue->bytes);
-	fprintf(fd, "%d\t", bvalue->bytes);
+	fprintf(fd, "%u\t", fvalue->version);
+	fprintf(fd, "%u\t", bvalue->version);
+	fprintf(fd, "%u\t", fvalue->fl);
+	fprintf(fd, "%u\t", bvalue->fl);
+	fprintf(fd, "%u\t", fvalue->tos);
+	fprintf(fd, "%u\t", bvalue->tos);
+	fprintf(fd, "%u\t", fvalue->bytes);
+	fprintf(fd, "%u\t", bvalue->bytes);
 	fprintf(fd, "%u\t", fvalue->min_pkt_len);
 	fprintf(fd, "%u\t", bvalue->min_pkt_len);
 	fprintf(fd, "%u\t", fvalue->max_pkt_len);
@@ -251,10 +251,10 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 		fprintf(fd, "%u\t", fvalue->pkt_size_hist[i]);
 	for(unsigned int i=0; i<6; i++)
 		fprintf(fd, "%u\t", bvalue->pkt_size_hist[i]);
-	fprintf(fd, "%d\t", fvalue->min_ttl);
-	fprintf(fd, "%d\t", bvalue->min_ttl);
-	fprintf(fd, "%d\t", fvalue->max_ttl);
-	fprintf(fd, "%d\t", bvalue->max_ttl);
+	fprintf(fd, "%u\t", fvalue->min_ttl);
+	fprintf(fd, "%u\t", bvalue->min_ttl);
+	fprintf(fd, "%u\t", fvalue->max_ttl);
+	fprintf(fd, "%u\t", bvalue->max_ttl);
 	for(unsigned int i=0; i<10; i++) {
 		fprintf(fd, "%u\t", fvalue->pkt_ttl_hist[i]);
 	}
@@ -264,22 +264,22 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 
 	fprintf(fd, "%08x\t", fvalue->cumulative_flags);
 	fprintf(fd, "%08x\t", bvalue->cumulative_flags);
-	fprintf(fd, "%d\t", fvalue->retr_pkts);
-	fprintf(fd, "%d\t", bvalue->retr_pkts);
-	fprintf(fd, "%d\t", fvalue->retr_bytes);
-	fprintf(fd, "%d\t", bvalue->retr_bytes);
-	fprintf(fd, "%d\t", fvalue->ooo_pkts);
-	fprintf(fd, "%d\t", bvalue->ooo_pkts);
-	fprintf(fd, "%d\t", fvalue->ooo_bytes);
-	fprintf(fd, "%d\t", bvalue->ooo_bytes);
-	fprintf(fd, "%d\t", fvalue->min_win_bytes);
-	fprintf(fd, "%d\t", bvalue->min_win_bytes);
-	fprintf(fd, "%d\t", fvalue->max_win_bytes);
-	fprintf(fd, "%d\t", bvalue->max_win_bytes);
-	fprintf(fd, "%d\t", fvalue->mss);
-	fprintf(fd, "%d\t", bvalue->mss);
-	fprintf(fd, "%d\t", fvalue->wndw_scale);
-	fprintf(fd, "%d\t", bvalue->wndw_scale);
+	fprintf(fd, "%u\t", fvalue->retr_pkts);
+	fprintf(fd, "%u\t", bvalue->retr_pkts);
+	fprintf(fd, "%u\t", fvalue->retr_bytes);
+	fprintf(fd, "%u\t", bvalue->retr_bytes);
+	fprintf(fd, "%u\t", fvalue->ooo_pkts);
+	fprintf(fd, "%u\t", bvalue->ooo_pkts);
+	fprintf(fd, "%u\t", fvalue->ooo_bytes);
+	fprintf(fd, "%u\t", bvalue->ooo_bytes);
+	fprintf(fd, "%u\t", fvalue->min_win_bytes);
+	fprintf(fd, "%u\t", bvalue->min_win_bytes);
+	fprintf(fd, "%u\t", fvalue->max_win_bytes);
+	fprintf(fd, "%u\t", bvalue->max_win_bytes);
+	fprintf(fd, "%u\t", fvalue->mss);
+	fprintf(fd, "%u\t", bvalue->mss);
+	fprintf(fd, "%u\t", fvalue->wndw_scale);
+	fprintf(fd, "%u\t", bvalue->wndw_scale);
 	
 	fprintf(fd, "\n");
 	fflush(fd);

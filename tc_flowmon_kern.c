@@ -371,13 +371,6 @@ static __always_inline int tcpopt_type(void * tcph, unsigned int offset, void *d
 	
 }
 
-//static __always_inline int parse_tcpopt2(char *opt,
-//					struct tcpopt *oph)
-//{
-//
-//	return 1;
-//}
-
 /*
  * parse_tcpopt: parse tcp options and returns the length
  * of the options.
@@ -388,6 +381,11 @@ static __always_inline int tcpopt_type(void * tcph, unsigned int offset, void *d
  * I could reach 10 loops with the simpler options, but this does
  * not work with all possible options. Alternative implementations
  * should be investigated to improve this part.
+ * Update: I tried to copy the options to an array (with a union 
+ * structure to manage access to words and bytes), but then I 
+ * always got an error when trying to copy the values to the map
+ * fields. Loading of the overall structure was far quicker, but 
+ * I didn't find a solution for the copy.
  */
 static __always_inline int parse_tcpopt(struct tcphdr *tcph,
 					void *data_end,
@@ -411,7 +409,6 @@ static __always_inline int parse_tcpopt(struct tcphdr *tcph,
 	if( (void *)(tcph+1)+op_tot_len > data_end )
 		return -1;
 
-	bpf_debug("op_tot_len = %d\n", op_tot_len);
 	
 	/* 10 loops is arbitrary, hoping this could cover most use-cases.
 	 * A fixed boundary is required by the internal verifier.
@@ -419,7 +416,7 @@ static __always_inline int parse_tcpopt(struct tcphdr *tcph,
 	for(unsigned int i=0; i<5; i++)
 	{
 		type = tcpopt_type((void *) tcph, offset,data_end);
-
+	
 		switch ( type ) {
 			case TCP_OPT_END:
 				last_op = 1;
@@ -433,7 +430,7 @@ static __always_inline int parse_tcpopt(struct tcphdr *tcph,
 					return -1;
 				offset+=mss->len;
 				op_tot_len-=mss->len;
-				*value.mss = mss->data;
+				*value.mss = ntohs(mss->data);
 				break;
 			case TCP_OPT_WNDWS:
 				wndw_scale = (struct tcp_opt_wndw_scale *)((void *)tcph+offset);
@@ -753,7 +750,6 @@ static __always_inline int update_ip_stats(struct flow_info *value, struct iphdr
 }
 
 static __always_inline int update_tcp_stats(struct flow_info *value, 
-						struct __sk_buff *skb,
 						struct tcphdr *tcph, 
 						unsigned int tcp_len,
 						void *data_end)
@@ -761,10 +757,10 @@ static __always_inline int update_tcp_stats(struct flow_info *value,
 {
 	//struct tcpopt oph = { 0 };
 	__u16 flags;
-	__u16 wndw;
+	__u32 wndw;
 	__u32 seq;
 	unsigned int op_tot_len;
-	__u8 wndw_scale = 0;
+	//__u8 wndw_scale = 0;
 
 	union tcp_word_hdr *twh = (union tcp_word_hdr *) tcph;
 	flags = ntohl(twh->words[3] & htonl(0x00FF0000)) >> 16;
@@ -774,7 +770,7 @@ static __always_inline int update_tcp_stats(struct flow_info *value,
 	/* The following code needs to read the options!
 	 * Otherwise wind_scale would not be known.
 	 */
-	wndw = ntohs(tcph->window)*value->wndw_scale;
+	wndw = ntohs(tcph->window) << value->wndw_scale;
 	if( wndw < value->min_win_bytes )
 		value->min_win_bytes = wndw;
 	if( wndw > value->max_win_bytes)
@@ -785,15 +781,11 @@ static __always_inline int update_tcp_stats(struct flow_info *value,
 	 */
 	struct optvalues values;
 	values.mss = &value->mss;
-	values.wndw_scale = &wndw_scale;
+	values.wndw_scale = &value->wndw_scale;
 	op_tot_len = parse_tcpopt(tcph, data_end, values);
 
-	
-//	bpf_debug("op_tot_len = %d\n", op_tot_len);
-
-
-
-	
+	if( op_tot_len > 0 )
+		bpf_debug("Unable to parse all options!\n");
 
 	seq = ntohl(tcph->seq);
 	if( seq > value->last_seq )
@@ -813,7 +805,7 @@ static __always_inline void init_info(struct flow_info *info)
 		info->min_pkt_len = 0xffff;
 		info->min_ttl = 0xff;
 		info->min_win_bytes = 0xffff;
-		info->wndw_scale = 1;
+		info->wndw_scale = 0;
 	}
 }
 
@@ -922,16 +914,13 @@ int  flow_label_stats(struct __sk_buff *skb)
 	ip_tot_len = update_ip_stats(value, iph4);
 	if ( ip_proto == IPPROTO_TCP ) {
 		/* TODO: What happens in case options are present in IP? */
-		bpf_debug("ip_tot_len: %d\n", ip_tot_len);
 		unsigned int tcp_len = ip_tot_len - ((void *)tcphdr - (void *)iph4);
-		bpf_debug("tcp_len: %d\n", tcp_len);
 		//update_tcp_stats(value, tcphdr);
-		update_tcp_stats(value, skb, tcphdr, tcp_len, data_end);
+		update_tcp_stats(value, tcphdr, tcp_len, data_end);
 	}
 
 	bpf_map_update_elem(&flowmon_stats, &key, value, BPF_ANY); 
 
-	bpf_debug("Just inserted something in the map...");
 
 	/*
 #ifndef __BCC__

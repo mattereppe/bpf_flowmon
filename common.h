@@ -77,8 +77,8 @@ struct flow_info {
 	__u32	retr_bytes;		/* Total number of retransmitted bytes. */
 	__u16	ooo_pkts;		/* Total number of out-of-order packets. */
 	__u32	ooo_bytes;		/* Total number of out-of-order bytes. */
-	__u16	min_win_bytes;		/* Min TCP Window. */
-	__u16	max_win_bytes;		/* Max TCP Window. */
+	__u32	min_win_bytes;		/* Min TCP Window. */
+	__u32	max_win_bytes;		/* Max TCP Window. */
 	__u16	mss;			/* TCP Max Segment Size. */
 	__u8	wndw_scale;		/* TCP Window Scale. */
 

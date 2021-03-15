@@ -9,6 +9,7 @@ CC := gcc
 
 # Dependencies
 USER_DEP := *.h
+COMMON_H := common.h
 
 # Valid definition for all possible targets
 XDP_C = ${XDP_TARGETS:=.c}
@@ -56,11 +57,11 @@ llvm-check: $(CLANG) $(LLC)
 	        else true; fi; \
 	done
 
-$(USER_TARGETS): %: %.c  Makefile $(KERN_USER_H) $(EXTRA_DEPS) $(USER_OBJ) $(USER_DEP)
+$(USER_TARGETS): %: %.c  Makefile $(COMMON_H) $(EXTRA_DEPS) $(USER_OBJ) $(USER_DEP)
 	$(CC) -Wall $(CFLAGS) $(LDFLAGS) -o $@ \
          $(USER_OBJ) $(LIBS) 
 
-$(XDP_OBJ): %.o: %.c  Makefile $(KERN_USER_H) $(EXTRA_DEPS)
+$(XDP_OBJ): %.o: %.c  Makefile $(COMMON_H) $(EXTRA_DEPS)
 	$(CLANG) -S \
             -target bpf \
             $(BPF_CFLAGS) \
