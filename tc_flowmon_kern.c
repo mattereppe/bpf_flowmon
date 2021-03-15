@@ -386,6 +386,10 @@ static __always_inline int tcpopt_type(void * tcph, unsigned int offset, void *d
  * always got an error when trying to copy the values to the map
  * fields. Loading of the overall structure was far quicker, but 
  * I didn't find a solution for the copy.
+ * Among the many errors I got when accessing the packet, out of 
+ * boundary was among the most common. It may be due to a bug in
+ * the bpf verifier, as noted by the following post:
+ * https://mechpen.github.io/posts/2019-08-29-bpf-verifier/index.html
  */
 static __always_inline int parse_tcpopt(struct tcphdr *tcph,
 					void *data_end,
