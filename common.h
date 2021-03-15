@@ -45,7 +45,7 @@ struct flow_info {
 	/* IP-related filds and measurements. */
 	__u8 	version;		/* Version (4/6) */
 	__u8	tos;		   	/* TOS/DSCP (IPv4) or Traffic Class (IPv6). */	
-	__u32	fl;			/* Flow label (IPv6 only). */
+	__u32	fl;			/* Flow label (IPv6). */
 	__u32	bytes;		    	/* Cumulative number of bytes. */
 	__u16	min_pkt_len;	 	/* Smallest IP packet seen in the flow. */
 	__u16	max_pkt_len; 		/* Biggest IP packet seen in the flow. */
@@ -71,7 +71,8 @@ struct flow_info {
 					 */
 
 	/* TCP-related fields. */
-	__u32	last_seq;		/* Last sequence number seen (used for computing retransmissions. */
+	__u32	next_seq;		/* Last sequence number seen (used for computing retransmissions. */
+	__be16 	last_id;		/* Last ipv4 identification value for last_seq. */
 	__u8	cumulative_flags;	/* Cumulative TCP flags seen in all packets so far. */
 	__u16	retr_pkts;		/* Total number of retrasmitted packets. */
 	__u32	retr_bytes;		/* Total number of retransmitted bytes. */

@@ -358,6 +358,16 @@ static __always_inline int parse_udphdr(struct hdr_cursor *nh,
 	return len;
 }
 
+/* Alternative implementation of the parse_tcpopt to allow loading the
+ * filter.
+ */
+//static __always_inline int parse_tcpopt(struct tcphdr *tcph,
+//					void *data_end,
+//					struct optvalues value)
+//{
+//	return 0;
+//}
+
 static __always_inline int tcpopt_type(void * tcph, unsigned int offset, void *data_end)
 {
 	struct tcp_opt_none *opn;
@@ -509,33 +519,6 @@ static __always_inline int parse_tcphdr(struct hdr_cursor *nh,
 	return data_end - nh->pos;
 }
 
-/* TODO: change this for debugging flows (if really necessary). 
-static unsigned int print_map()
-#ifdef _DEBUG_
-{
-	__u32 key = 0;
-	__u32 *counter = 0;
-	__u32 value = 0;
-	
-	for(unsigned int i=0;i<NBINS;i++)
-	{
-		counter = bpf_map_lookup_elem(&fl_stats, &key);
-		if(counter)
-			value=*counter;
-		else
-			value=0;
-		bpf_debug("[%d]: %d\n", key, value);
-		key += 1;
-	} 
-	return 0;
-};
-#else
-{
-	return 0;
-};
-#endif
-*/
-
 /* Parse the headers and look for the parameters that identify the flow.
  */
 static __always_inline int process_ip_header(struct hdr_cursor *nh,
@@ -645,7 +628,8 @@ static __always_inline int update_frame_stats(struct flow_info *value, __u64 ts)
 
 static __always_inline int update_ip_stats(struct flow_info *value, struct iphdr *iph)
 {
-	int idx, fl, len;
+	int idx;
+	int fl, len;
 	__u8 tos, ttl;
 	struct iphdr *ip4h;
 	struct ipv6hdr *ip6h;
@@ -754,17 +738,17 @@ static __always_inline int update_ip_stats(struct flow_info *value, struct iphdr
 }
 
 static __always_inline int update_tcp_stats(struct flow_info *value, 
+						struct iphdr *iph4,
 						struct tcphdr *tcph, 
-						unsigned int tcp_len,
+						int tcp_len,
 						void *data_end)
-//static __always_inline int update_tcp_stats(struct flow_info *value, struct tcphdr *tcph)
 {
-	//struct tcpopt oph = { 0 };
 	__u16 flags;
 	__u32 wndw;
 	__u32 seq;
+	__be16 id;
+	int seg_len;
 	unsigned int op_tot_len;
-	//__u8 wndw_scale = 0;
 
 	union tcp_word_hdr *twh = (union tcp_word_hdr *) tcph;
 	flags = ntohl(twh->words[3] & htonl(0x00FF0000)) >> 16;
@@ -786,19 +770,58 @@ static __always_inline int update_tcp_stats(struct flow_info *value,
 	struct optvalues values;
 	values.mss = &value->mss;
 	values.wndw_scale = &value->wndw_scale;
+	op_tot_len=0;
 	op_tot_len = parse_tcpopt(tcph, data_end, values);
 
 	if( op_tot_len > 0 )
 		bpf_debug("Unable to parse all options!\n");
 
+
+	/* This is a simplified implementation that does not cover every
+	 * possible use cases. It only detects the retransmission of the last
+	 * segment, but does not work when more segments are retransmitted.
+	 *
+	 * Note: this only detects duplicated segments, not duplicated TCP
+	 * packets. For instance, this approach cannot detect duplicated SYN
+	 * packets, duplicated ACK packets, and so on.
+	 *
+	 * TODO: Understand if it is worth investigating a more precise method
+	 * and how it would impact performance.
+	 */
 	seq = ntohl(tcph->seq);
-	if( seq > value->last_seq )
-		value->last_seq = seq;
-	else {
-		value->retr_pkts++;
-		value->retr_bytes += tcp_len - tcph->doff*4;
+	id = ntohs(iph4->id);
+	seg_len = tcp_len - tcph->doff*4;
+	if( seg_len < 0 )
+	{
+		bpf_debug("Err: tcp seg len %d\n",seg_len);
+		return -1;
 	}
-	
+
+	/* There are 3 conditions to verify:
+	 * Condition 1: No ACK packet (segment length > 0)
+	 * Condition 2: same seq previously seen
+	 * Condition 3: different id of previous pkt;
+	 * https://www.flowmon.com/en/blog/measuring-tcp-retransmissions-in-flowmon
+	 *
+	 * In practice, the seq refers to the first expected byte in the packet (if
+	 * present), so we must compute the expected seq number and check whether
+	 * the current seq is = or it is a previous value. We cannot simply check
+	 * the prev seq, because after an ACK we have a segment with len > 0 but
+	 * with the same seq as the previous ACK.
+	 */
+	if( seg_len > 0 &&
+		seq < value->next_seq && 
+		id != value->last_id )
+	{
+		(value->retr_pkts)++;
+		value->retr_bytes += seg_len;
+	}
+	else
+	{
+		value->next_seq = seq + seg_len;
+		value->last_id = id;
+	}
+
 	return 1;
 }
 
@@ -810,6 +833,8 @@ static __always_inline void init_info(struct flow_info *info)
 		info->min_ttl = 0xff;
 		info->min_win_bytes = 0xffff;
 		info->wndw_scale = 0;
+		info->retr_pkts = 0;
+		info->retr_bytes = 0;
 	}
 }
 
@@ -914,13 +939,15 @@ int  flow_label_stats(struct __sk_buff *skb)
 		value->ifindex = skb->ifindex;
 	
 	update_frame_stats(value, ts);
-	//update_ip_stats(value, iph4);
 	ip_tot_len = update_ip_stats(value, iph4);
 	if ( ip_proto == IPPROTO_TCP ) {
 		/* TODO: What happens in case options are present in IP? */
-		unsigned int tcp_len = ip_tot_len - ((void *)tcphdr - (void *)iph4);
-		//update_tcp_stats(value, tcphdr);
-		update_tcp_stats(value, tcphdr, tcp_len, data_end);
+		/* TODO: IPv6 */
+		int tcp_len = ip_tot_len - ((void *)tcphdr - (void *)iph4);
+		if( tcp_len < 20 )
+			bpf_debug("Error: tcp length: %d\n", tcp_len);
+		else
+			update_tcp_stats(value, iph4, tcphdr, tcp_len, data_end);
 	}
 
 	bpf_map_update_elem(&flowmon_stats, &key, value, BPF_ANY); 
