@@ -784,6 +784,8 @@ static __always_inline int update_tcp_stats(struct flow_info *value,
 	 * Note: this only detects duplicated segments, not duplicated TCP
 	 * packets. For instance, this approach cannot detect duplicated SYN
 	 * packets, duplicated ACK packets, and so on.
+	 * Note2: this probably counts out-of-order segments as retransmissions
+	 * (see below the notes).
 	 *
 	 * TODO: Understand if it is worth investigating a more precise method
 	 * and how it would impact performance.
@@ -821,6 +823,42 @@ static __always_inline int update_tcp_stats(struct flow_info *value,
 		value->next_seq = seq + seg_len;
 		value->last_id = id;
 	}
+
+	/* Out-Of-Order packets.
+	 * Detecting ooo packets is tricky, because they are packets that arrive 
+	 * after a following SEQ has been seen. This is basically the same condition
+	 * as retransmission, so it is challenging to distinguish between the two events.
+	 * My idea is that this should be possible by building a sort of "map" for
+	 * sequence number, which keeps track of which portion of the seq number space
+	 * has been seen. If the current SEQ is before the expected SEQ, by looking
+	 * at this map we could distinguish between retransmissions and ooo.
+	 * The implementation is not trivial, and requires some test cases for 
+	 * validation. For this reason, it is postponed, maybe to a thesis. In any
+	 * case, it is necessary to understand if and how bpf tail calls can be
+	 * used to manage the number of operations that are necessary to build all
+	 * the necessary statistics, since the current code does not fit the limited
+	 * size of the stack.
+	 *
+	 *                     SeqA             SeqB       SeqC
+	 *                     |                |          |
+	 *                     V                V          V 
+	 * +-----+----+--------+-------+--------+-----+----+-----------+-------+-------+
+	 * |     |    |        |///////|        |     |////|///////////|       |       |
+	 * +-----+----+--------+-------+--------+-----+----+-----------+-------+-------+
+	 *            A                A        A                      A
+	 *            |                |        |                      |
+	 *            Seq1             Seq2     Seq3                   Seq4 
+	 *     
+	 *  Let the following be the list of packets seen: Seq1, Seq2, Seq3, Seq4.
+	 *  If the next packet is:
+	 *  - SeqA: SeqA<Seq4, but this is out of order
+	 *  - SeqB: SeqB<Seq4, and this is a retransmission
+	 *  - SeqC: SeqC<Seq4, and this is again out-of-order
+	 *  I don't see a trivial method to distinguish between retransmission and ooo,
+	 *  if we don't create a map to store the current status. And I didn't consider
+	 *  selective acknowlegement in my reasoning!
+	 *
+	 */
 
 	return 1;
 }
