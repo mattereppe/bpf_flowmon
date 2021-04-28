@@ -28,7 +28,7 @@ EXTRA_DEPS += *.h
 #CFLAGS += -I/home/debian/headers/
 #CFLAGS += -I/usr/include/x86_64-linux-gnu/
 #LDFLAGS ?= -L$(LIBBPF_DIR)
-CFLAGS += -D __FLOW_IPV4__
+CFLAGS += -D __FLOW_IPV4__ -D __FLOW_IPV6__
 
 #BPF_CFLAGS ?= -I$(LIBBPF_DIR)/build/usr/include/ -I/home/debian/xdp-tutorial/headers/
 BPF_CFLAGS += -I/usr/include/x86_64-linux-gnu/ -D _DEBUG_ -D __BPF_TRACING__ -D __FLOW_IPV4__  -D __FLOW_IPV6__
@@ -57,8 +57,12 @@ llvm-check: $(CLANG) $(LLC)
 	        else true; fi; \
 	done
 
-$(USER_TARGETS): %: %.c  Makefile $(COMMON_H) $(EXTRA_DEPS) $(USER_OBJ) $(USER_DEP)
-	$(CC) -Wall $(CFLAGS) $(LDFLAGS) -o $@ \
+$(USER_OBJ): %.o: %.c Makefile $(COMMON_H) $(EXTRA_DEPS) $(USER_DEP)
+	$(CC) -Wall -c $(CFLAGS) -o $@ $<
+
+$(USER_TARGETS): %: %.o Makefile $(USER_OBJ) 
+	echo $(USER_OBJ)
+	$(CC) -Wall $(LDFLAGS) -o $@ \
          $(USER_OBJ) $(LIBS) 
 
 $(XDP_OBJ): %.o: %.c  Makefile $(COMMON_H) $(EXTRA_DEPS)

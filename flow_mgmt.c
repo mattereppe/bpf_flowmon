@@ -52,13 +52,13 @@ extern int verbose;
 #define OP_COUNT 	2 /* Count all flows. */
 #define OP_DUMP		3 /* Dump the current content of the flow table (uni-directional flows). */
 
-#ifdef __FLOW_IPV4__
-#define ADDRSTRLEN INET_ADDRSTRLEN
-#endif
 #ifdef __FLOW_IPV6__
 #define ADDRSTRLEN INET6_ADDRSTRLEN
-#endif
+#else
+#define ADDRSTRLEN INET_ADDRSTRLEN
+#endif /* ifdef __FLOW_IPV6__ */
 
+/* Fix for IPv6 support before using again these functions.
 static void _debug_print_flow_id(const struct flow_id *key)
 {
 	printf("Source addr: %d\n", key->saddr);
@@ -78,6 +78,7 @@ static void _debug_dump_flow_id(const struct flow_id *key)
 		printf("%02x ", bin[i]);
 	printf("\n");
 }
+*/
 
 static unsigned int get_icmp_peer_type(const unsigned int type)
 {
@@ -105,20 +106,22 @@ static unsigned int get_icmp_peer_type(const unsigned int type)
 
 static void key_switch(const struct flow_id *key, struct flow_id *key2)
 {
+	int len;
+
 	/* Note that struct flow_id is padded to 16B. 
 	 * Unfortunately, padding bytes are used when computing the hash,
 	 * so it is important to have all of them set to 0.
 	 */
 	memset((void *)key2, 0, sizeof(struct flow_id));
 
-#ifdef __FLOW_IPV4__
-	key2->saddr = key->daddr;
-	key2->daddr = key->saddr;
-#endif
 #ifdef __FLOW_IPV6__
-	memcpy(key2->saddr, key->daddr, 16);
-	memcpy(key2->daddr, key->saddr, 16);
-#endif
+	len = 16;
+#else
+	len = 4;
+#endif /* ifdef __FLOW_IPV6__ */
+
+	memcpy(key2->saddr.v6, key->daddr.v6, len);
+	memcpy(key2->daddr.v6, key->saddr.v6, len);
 	key2->proto = key->proto;
 	switch ( key->proto) {
 		case IPPROTO_ICMP:
@@ -178,6 +181,16 @@ static int flow_to_remove(struct flow_id *key, struct flow_info *value)
 	return FLOW_NOTERM;
 }
 
+/* Get the IP address family, from IP version in the header. 
+ */
+static __always_inline int get_family(const int ip_version)
+{
+	if( ip_version == 4 )
+		return AF_INET;
+	else
+		return AF_INET6;
+}
+
 /* Print the flow statistics.
  * TODO: This function should be replaced with a more appropriate 
  * output method.
@@ -185,12 +198,15 @@ static int flow_to_remove(struct flow_id *key, struct flow_info *value)
 static void flow_print(struct flow_id *key, struct flow_info *value, FILE *fd)
 {
 	char ip_addr[ADDRSTRLEN];
+	int family;
+
+	family = get_family(value->version);
 
 	/* Print the flow id. */
-	if( inet_ntop(AF_INET, (const void *)(&(key->saddr)), ip_addr, ADDRSTRLEN) != 0 )
+	if( inet_ntop(family, (const void *)(&(key->saddr)), ip_addr, ADDRSTRLEN) != 0 )
 		fprintf(fd, "%s:%d",ip_addr, key->sport);
 	fprintf(fd," -> ");
-	if( inet_ntop(AF_INET, (const void *)(&(key->daddr)), ip_addr, ADDRSTRLEN) != 0 )
+	if( inet_ntop(family, (const void *)(&(key->daddr)), ip_addr, ADDRSTRLEN) != 0 )
 		fprintf(fd, "%s:%d",ip_addr, key->dport);
 	fprintf(fd, " %d ",key->proto);
 
@@ -207,11 +223,14 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 {
 	char ip_addr[ADDRSTRLEN];
 	char if_name[IF_NAMESIZE];
+	int family;
+
+	family = get_family(fvalue->version);
 
 	/* Print the flow id. */
-	if( inet_ntop(AF_INET, (const void *)(&(fkey->saddr)), ip_addr, ADDRSTRLEN) != 0 )
+	if( inet_ntop(family, (const void *)(&(fkey->saddr)), ip_addr, ADDRSTRLEN) != 0 )
 		fprintf(fd, "%s\t",ip_addr);
-	if( inet_ntop(AF_INET, (const void *)(&(fkey->daddr)), ip_addr, ADDRSTRLEN) != 0 )
+	if( inet_ntop(family, (const void *)(&(fkey->daddr)), ip_addr, ADDRSTRLEN) != 0 )
 		fprintf(fd, "%s\t",ip_addr);
 	fprintf(fd, "%d\t", fkey->proto);
 	fprintf(fd, "%h\t", fkey->sport);

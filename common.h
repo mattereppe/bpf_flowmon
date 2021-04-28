@@ -40,7 +40,7 @@
 union ip_addr {
 	__be32 v4;
 #ifdef __FLOW_IPV6__
-	__u8 v6[6];
+	__u8 v6[16];
 #endif /* ifdef __FLOW_IPv6 */
 };
 
