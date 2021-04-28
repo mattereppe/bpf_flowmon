@@ -9,8 +9,6 @@
 #define MAXFLOWS		1024 
 
 /* Define the identifier for each flow. 
- *	Fields are currently sized for IPv4. 
- *	TODO: add support for IPv6.
  */
 #ifdef __FLOW_IPV4__
 struct flow_id {
@@ -19,20 +17,21 @@ struct flow_id {
 		__be16	sport;			/* "id" for ICM Echo request/reply */
 		__be16	dport;			/* "Seq" for ICMP Echo request/reply */
 		__u8	proto;			/* This position is better for padding. */
-};
+} __attribute__((packed));
 #endif
 #ifdef __FLOW_IPV6__
-struct flow_id {
+struct flow_id6 {
 		__u8	saddr[16];
 		__u8	daddr[16];
 		__u8	proto;
 		__be16	sport;			/* "id" for ICM Echo request/reply */
 		__be16	dport;			/* "Seq" for ICMP Echo request/reply */
-};
+} __attribute__((packed));
 #endif
 
 /* Define the data collected for each flow.
  *	TODO: add support for more statistics.
+ *	ISSUE: too many instructions are necessary to parse TCP fields
  */
 struct flow_info {
 	/* Generic flow information (for all protocols) */
@@ -84,15 +83,13 @@ struct flow_info {
 	__u8	wndw_scale;		/* TCP Window Scale. */
 
 	/* Other NetFlow or IPFIX fields are L7- or mgmt specifics and are not collected through packets. */
-};
-
-/* TODO: Wanna use different maps for IPv6? This would save some space in 
- * the key for IPv4 flows.
+}; 
+/* Using the more correct option packed results in error
+ * in the current code (due to usage of reference values).
+ * This should be fixed before switching to this option.
+ * } __attribute__((packed));
  */
-struct map_fds {
-	int ingress; /* The fd for the map holding incoming packets. */
-	int egress; /* The fd for the map holding outcoming packets. */
-};
+
 
 /* Exit return codes */
 #define EXIT_OK                  0 /* == EXIT_SUCCESS (stdlib.h) man exit(3) */

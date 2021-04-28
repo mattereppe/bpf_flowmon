@@ -109,7 +109,7 @@ struct optvalues {
  */
 #ifdef __BCC__
 BPF_ARRAY(fl_stats, __u32, NBINS); /* TODO */
-#else
+#else /* ifdef __BCC__ */
 /* The standard way. Fully compatible with all tools, but 
  * needs an external program to be pinned and shared between
  * multiple program instances.
@@ -130,6 +130,7 @@ BPF_ARRAY(fl_stats, __u32, NBINS); /* TODO */
  * See the full description from the Cilium project:
  * https://docs.cilium.io/en/latest/bpf/
  */
+#ifdef __FLOW_IPV4__
 struct bpf_elf_map SEC("maps") flowmon_stats = {
     .type           = BPF_MAP_TYPE_HASH,
     .size_key       = sizeof(struct flow_id),
@@ -137,17 +138,19 @@ struct bpf_elf_map SEC("maps") flowmon_stats = {
     .pinning        = PIN_GLOBAL_NS, /* Alternatives: PIN_OBJECT_NS, PIN_NONE */
     .max_elem       = MAXFLOWS,
 };
+#endif /* ifdef __FLOW_IPV4__ */
 
-/*
-struct bpf_map_def SEC("maps") fl_stats = {
-	.type = BPF_MAP_TYPE_ARRAY,
-	.key_size = sizeof(__u32),
-	.value_size = sizeof(__u32),
-	.max_entries = MAXFLOWS,
-	.map_flags = BPF_ANY
+#ifdef __FLOW_IPV6__
+struct bpf_elf_map SEC("maps") flowmon_stats6 = {
+    .type           = BPF_MAP_TYPE_HASH,
+    .size_key       = sizeof(struct flow_id6),
+    .size_value     = sizeof(struct flow_info),
+    .pinning        = PIN_GLOBAL_NS, /* Alternatives: PIN_OBJECT_NS, PIN_NONE */
+    .max_elem       = MAXFLOWS,
 };
-*/
-#endif
+#endif /* ifdef __FLOW_IPV6__ */
+
+#endif /* ifdef __BCC__ */
 
 #ifndef __BCC__
 #define VLAN_MAX_DEPTH 4		/* Max number of VLAN headers parsed */
@@ -182,9 +185,9 @@ struct vlan_hdr {
 #endif
 
 /*
-	   * Struct icmphdr_common represents the common part of the icmphdr and icmp6hdr
-	   *  * structures.
-	   *   */
+ * Struct icmphdr_common represents the common part of the icmphdr and icmp6hdr
+ * structures.
+ */
 struct icmphdr_common {
         __u8	type;
 	__u8    code;
@@ -239,6 +242,7 @@ static __always_inline int parse_ethhdr(struct hdr_cursor *nh,
 
 }
 
+#ifdef __FLOW_IPV6__
 static __always_inline int parse_ip6hdr(struct hdr_cursor *nh,
 					void *data_end,
 					struct ipv6hdr **ip6hdr)
@@ -257,7 +261,9 @@ static __always_inline int parse_ip6hdr(struct hdr_cursor *nh,
 
 	return ip6h->nexthdr;
 }
+#endif /* ifdef __FLOW_IPV6__ */
 
+#ifdef __FLOW_IPV4__
 static __always_inline int parse_iphdr(struct hdr_cursor *nh,
 				       void *data_end,
 				       struct iphdr **iphdr)
@@ -282,6 +288,7 @@ static __always_inline int parse_iphdr(struct hdr_cursor *nh,
 
 	return iph->protocol;
 }
+#endif /* ifdef __FLOW_IPV4__ */
 
 /* Not needed when only the common part of the ICMP/ICMP6 header
  * is parsed (see parse_icmphdr_common() below.
@@ -358,16 +365,7 @@ static __always_inline int parse_udphdr(struct hdr_cursor *nh,
 	return len;
 }
 
-/* Alternative implementation of the parse_tcpopt to allow loading the
- * filter.
- */
-//static __always_inline int parse_tcpopt(struct tcphdr *tcph,
-//					void *data_end,
-//					struct optvalues value)
-//{
-//	return 0;
-//}
-
+#ifdef __FLOW_TCP_OPTS__
 static __always_inline int tcpopt_type(void * tcph, unsigned int offset, void *data_end)
 {
 	struct tcp_opt_none *opn;
@@ -490,6 +488,7 @@ static __always_inline int parse_tcpopt(struct tcphdr *tcph,
 
 	return op_tot_len;
 }
+#endif /* ifdef __FLOW_TCP_OPTS__ */
 
 /*
  * parse_tcphdr: parse and return the length of the tcp header
@@ -519,6 +518,7 @@ static __always_inline int parse_tcphdr(struct hdr_cursor *nh,
 	return data_end - nh->pos;
 }
 
+#ifdef __FLOW_IPV4__
 /* Parse the headers and look for the parameters that identify the flow.
  */
 static __always_inline int process_ip_header(struct hdr_cursor *nh,
@@ -537,7 +537,9 @@ static __always_inline int process_ip_header(struct hdr_cursor *nh,
 
 	return proto;
 }
+#endif /* ifdef __FLOW_IPV4__ */
 
+#ifdef __FLOW_IPV6__
 static __always_inline int process_ipv6_header(struct hdr_cursor *nh,
 					void *data_end,
 					struct ipv6hdr **ip6hdr,
@@ -557,6 +559,7 @@ static __always_inline int process_ipv6_header(struct hdr_cursor *nh,
 
 	return -1;
 }
+#endif
 
 			
 static __always_inline int process_udp_header(struct hdr_cursor *nh,
@@ -748,7 +751,9 @@ static __always_inline int update_tcp_stats(struct flow_info *value,
 	__u32 seq;
 	__be16 id;
 	int seg_len;
+#ifdef __FLOW_TCP_OPTS__
 	unsigned int op_tot_len;
+#endif
 
 	union tcp_word_hdr *twh = (union tcp_word_hdr *) tcph;
 	flags = ntohl(twh->words[3] & htonl(0x00FF0000)) >> 16;
@@ -764,6 +769,7 @@ static __always_inline int update_tcp_stats(struct flow_info *value,
 	if( wndw > value->max_win_bytes)
 		value->max_win_bytes = wndw;
 	
+#ifdef __FLOW_TCP_OPTS__
 	/* Scan and process options. This part should be skipped when
 	 * the corresponding TCP fields are not required.
 	 */
@@ -775,6 +781,7 @@ static __always_inline int update_tcp_stats(struct flow_info *value,
 
 	if( op_tot_len > 0 )
 		bpf_debug("Unable to parse all options!\n");
+#endif /* ifdef __FLOW_TCP_OPTS__ */
 
 
 	/* This is a simplified implementation that does not cover every
@@ -898,8 +905,12 @@ int  flow_label_stats(struct __sk_buff *skb)
 	struct flow_info *value = 0;
 	struct hdr_cursor nh;
 	struct ethhdr *eth;
+#ifdef __FLOW_IPV4__
 	struct iphdr *iph4;
+#endif /* __FLOW_IPV4__ */
+#ifdef __FLOW_IPV6__
 	struct ipv6hdr *iph6;
+#endif /* __FLOW_IPV4__ */
 	struct icmphdr_common *icmphdrc;
 	struct tcphdr *tcphdr;
 	struct udphdr *udphdr;
@@ -925,14 +936,18 @@ int  flow_label_stats(struct __sk_buff *skb)
 	 * TODO: read IP source/destination addresses.
 	 */
 	switch (eth_proto) {
+#ifdef __FLOW_IPV4__
 		case ETH_P_IP:
 			if( (ip_proto = process_ip_header(&nh, data_end, &iph4, &key)) < 0 )
 				return TC_ACT_OK; /* Should we drop in this case??? */
 			break;
+#endif /* ifdef __FLOW_IPV4__ */
+#ifdef __FLOW_IPV6__
 		case ETH_P_IPV6:
 			if( (ip_proto = process_ipv6_header(&nh, data_end, &iph6, &key)) < 0 ) 
 				return TC_ACT_OK;
 			break;
+#endif /* ifdef __FLOW_IPV6__ */
 		default:
 			/* This happens mostly for link-layer protocols. They are not
 			 * considered in this implementation. 
@@ -967,7 +982,11 @@ int  flow_label_stats(struct __sk_buff *skb)
 
 
 	/* Collect the required statistics. */
+#ifdef __BCC__
+	flowmon_stats.lookup(&key);
+#else /* ifdef __BCC__ */
 	value = bpf_map_lookup_elem(&flowmon_stats, &key); 
+#endif /* ifdef __BCC__ */
 	if ( !value )
 	{
 		init_info(&info);
@@ -988,27 +1007,13 @@ int  flow_label_stats(struct __sk_buff *skb)
 			update_tcp_stats(value, iph4, tcphdr, tcp_len, data_end);
 	}
 
+#ifdef __BCC__
+	/* TODO: check if this works or anything else is necessary */
+	flowmon_stats.update(&key, value);
+#else /* ifdef __BCC__ */
 	bpf_map_update_elem(&flowmon_stats, &key, value, BPF_ANY); 
+#endif /* ifdef __BCC__ */
 
-
-	/*
-#ifndef __BCC__
-		bpf_map_lookup_elem(&fl_stats, &key);
-#else
-		fl_stats.lookup(&key);
-#endif
-	if(!counter)
-#ifndef __BCC__
-		bpf_map_update_elem(&fl_stats, &key, &init_value, BPF_ANY);
-#else
-		fl_stats.update(&key, &init_value);
-#endif
-	else
-		__sync_fetch_and_add(counter, 1);
-
-	print_map();
-	*/
-	  
 
 	return TC_ACT_OK;
 }
