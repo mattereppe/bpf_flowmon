@@ -9,25 +9,48 @@
 #define MAXFLOWS		1024 
 
 /* Define the identifier for each flow. 
+ * Managing IPv4 and IPv6 at the same time is not trivial. There are two 
+ * approaches that can be used:
+ * - duplicate the flow_id struct into the v4 and v6 version:
+ *   - two different maps can be used, for each flow, saving memory for IPv4
+ *   - all functions the take struct flow_id as input must be duplicated for
+ *     the two versions
+ *   - two sub-cases:
+ *   1) the code is either compiled for IPv4 or IPv6
+ *      - two programs run in parallel when both v4 and v6 flows are inspected
+ *      - some functions are duplicated for each packet (ethernet parsing)
+ *      - memory optimized in case of IPv4 flows
+ *   2) the same program deals with IPv4 and IPv6 packets
+ *      - no duplicated instructions
+ *      - however, many functions are duplicated for the two cases, which may
+ *        waste space in the stack
+ * - use the same flow_id for both IPv4 and IPv6
+ *   - memory saving is possible by providing the option for IPv4 only (__be32)
+ *   - no unnecessary duplication of functions (all functions take the same struct
+ *     flow_id as parameter)
+ *   - no duplication of maps (memory is wasted for IPv4 flows)
+ *   - no duplicated inspection instructions
+ *
+ * The second option facilitates code maintenance, at least during the development
+ * phase. This is why it is now used, leaving the possibility to save memory with 
+ * different struct flow_id for future comparison, it memory pops up to be a 
+ * practical limitation during the tests.
  */
-#ifdef __FLOW_IPV4__
-struct flow_id {
-		__be32	saddr;
-		__be32	daddr;
-		__be16	sport;			/* "id" for ICM Echo request/reply */
-		__be16	dport;			/* "Seq" for ICMP Echo request/reply */
-		__u8	proto;			/* This position is better for padding. */
-} __attribute__((packed));
-#endif
+
+union ip_addr {
+	__be32 v4;
 #ifdef __FLOW_IPV6__
-struct flow_id6 {
-		__u8	saddr[16];
-		__u8	daddr[16];
-		__u8	proto;
-		__be16	sport;			/* "id" for ICM Echo request/reply */
-		__be16	dport;			/* "Seq" for ICMP Echo request/reply */
+	__u8 v6[6];
+#endif /* ifdef __FLOW_IPv6 */
+};
+
+struct flow_id {
+		union ip_addr	saddr;
+		union ip_addr	daddr;
+		__be16		sport;	/* "id" for ICM Echo request/reply */
+		__be16		dport;	/* "Seq" for ICMP Echo request/reply */
+		__u8		proto;	/* This position is better for padding. */
 } __attribute__((packed));
-#endif
 
 /* Define the data collected for each flow.
  *	TODO: add support for more statistics.

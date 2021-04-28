@@ -31,7 +31,7 @@ EXTRA_DEPS += *.h
 CFLAGS += -D __FLOW_IPV4__
 
 #BPF_CFLAGS ?= -I$(LIBBPF_DIR)/build/usr/include/ -I/home/debian/xdp-tutorial/headers/
-BPF_CFLAGS += -I/usr/include/x86_64-linux-gnu/ -D _DEBUG_ -D __BPF_TRACING__ -D __FLOW_IPV4__ 
+BPF_CFLAGS += -I/usr/include/x86_64-linux-gnu/ -D _DEBUG_ -D __BPF_TRACING__ -D __FLOW_IPV4__  -D __FLOW_IPV6__
 #BPF_CFLAGS += -I/usr/include/x86_64-linux-gnu/ 
 # LIBBPF headers are installed in /usr/include/bpf
 

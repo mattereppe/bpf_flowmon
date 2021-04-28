@@ -130,7 +130,6 @@ BPF_ARRAY(fl_stats, __u32, NBINS); /* TODO */
  * See the full description from the Cilium project:
  * https://docs.cilium.io/en/latest/bpf/
  */
-#ifdef __FLOW_IPV4__
 struct bpf_elf_map SEC("maps") flowmon_stats = {
     .type           = BPF_MAP_TYPE_HASH,
     .size_key       = sizeof(struct flow_id),
@@ -138,17 +137,6 @@ struct bpf_elf_map SEC("maps") flowmon_stats = {
     .pinning        = PIN_GLOBAL_NS, /* Alternatives: PIN_OBJECT_NS, PIN_NONE */
     .max_elem       = MAXFLOWS,
 };
-#endif /* ifdef __FLOW_IPV4__ */
-
-#ifdef __FLOW_IPV6__
-struct bpf_elf_map SEC("maps") flowmon_stats6 = {
-    .type           = BPF_MAP_TYPE_HASH,
-    .size_key       = sizeof(struct flow_id6),
-    .size_value     = sizeof(struct flow_info),
-    .pinning        = PIN_GLOBAL_NS, /* Alternatives: PIN_OBJECT_NS, PIN_NONE */
-    .max_elem       = MAXFLOWS,
-};
-#endif /* ifdef __FLOW_IPV6__ */
 
 #endif /* ifdef __BCC__ */
 
@@ -531,8 +519,8 @@ static __always_inline int process_ip_header(struct hdr_cursor *nh,
 	if( (proto = parse_iphdr(nh, data_end, iph)) < 0)
 		return proto;
 
-	key->daddr = (*iph)->daddr;
-	key->saddr = (*iph)->saddr;
+	key->daddr.v4 = (*iph)->daddr;
+	key->saddr.v4 = (*iph)->saddr;
 	key->proto = proto;
 
 	return proto;
@@ -555,9 +543,11 @@ static __always_inline int process_ipv6_header(struct hdr_cursor *nh,
 	 * For now, an error is returned because this protocol is not
 	 * supported.
 	 */
+	memcpy(key->saddr.v6, (*ip6hdr)->saddr.s6_addr, 6);
+	memcpy(key->daddr.v6, (*ip6hdr)->daddr.s6_addr, 6);
 	key->proto = proto;
 
-	return -1;
+	return proto;
 }
 #endif
 
@@ -629,7 +619,7 @@ static __always_inline int update_frame_stats(struct flow_info *value, __u64 ts)
 	return 1;
 }
 
-static __always_inline int update_ip_stats(struct flow_info *value, struct iphdr *iph)
+static __always_inline int update_ip_stats(struct flow_info *value, void *iph)
 {
 	int idx;
 	int fl, len;
@@ -741,7 +731,7 @@ static __always_inline int update_ip_stats(struct flow_info *value, struct iphdr
 }
 
 static __always_inline int update_tcp_stats(struct flow_info *value, 
-						struct iphdr *iph4,
+						void *iph,
 						struct tcphdr *tcph, 
 						int tcp_len,
 						void *data_end)
@@ -797,38 +787,43 @@ static __always_inline int update_tcp_stats(struct flow_info *value,
 	 * TODO: Understand if it is worth investigating a more precise method
 	 * and how it would impact performance.
 	 */
-	seq = ntohl(tcph->seq);
-	id = ntohs(iph4->id);
-	seg_len = tcp_len - tcph->doff*4;
-	if( seg_len < 0 )
+	struct iphdr *iph4 = (struct iphdr *) iph;
+	if( iph4->version == 4 )
+		/* No implementation available for IPv6. */
 	{
-		bpf_debug("Err: tcp seg len %d\n",seg_len);
-		return -1;
-	}
-
-	/* There are 3 conditions to verify:
-	 * Condition 1: No ACK packet (segment length > 0)
-	 * Condition 2: same seq previously seen
-	 * Condition 3: different id of previous pkt;
-	 * https://www.flowmon.com/en/blog/measuring-tcp-retransmissions-in-flowmon
-	 *
-	 * In practice, the seq refers to the first expected byte in the packet (if
-	 * present), so we must compute the expected seq number and check whether
-	 * the current seq is = or it is a previous value. We cannot simply check
-	 * the prev seq, because after an ACK we have a segment with len > 0 but
-	 * with the same seq as the previous ACK.
-	 */
-	if( seg_len > 0 &&
-		seq < value->next_seq && 
-		id != value->last_id )
-	{
-		(value->retr_pkts)++;
-		value->retr_bytes += seg_len;
-	}
-	else
-	{
-		value->next_seq = seq + seg_len;
-		value->last_id = id;
+		seq = ntohl(tcph->seq);
+		id = ntohs(iph4->id);
+		seg_len = tcp_len - tcph->doff*4;
+		if( seg_len < 0 )
+		{
+			bpf_debug("Err: tcp seg len %d\n",seg_len);
+			return -1;
+		}
+	
+		/* There are 3 conditions to verify:
+		 * Condition 1: No ACK packet (segment length > 0)
+		 * Condition 2: same seq previously seen
+		 * Condition 3: different id of previous pkt;
+		 * https://www.flowmon.com/en/blog/measuring-tcp-retransmissions-in-flowmon
+		 *
+		 * In practice, the seq refers to the first expected byte in the packet (if
+		 * present), so we must compute the expected seq number and check whether
+		 * the current seq is = or it is a previous value. We cannot simply check
+		 * the prev seq, because after an ACK we have a segment with len > 0 but
+		 * with the same seq as the previous ACK.
+		 */
+		if( seg_len > 0 &&
+			seq < value->next_seq && 
+			id != value->last_id )
+		{
+			(value->retr_pkts)++;
+			value->retr_bytes += seg_len;
+		}
+		else
+		{
+			value->next_seq = seq + seg_len;
+			value->last_id = id;
+		}
 	}
 
 	/* Out-Of-Order packets.
@@ -905,6 +900,7 @@ int  flow_label_stats(struct __sk_buff *skb)
 	struct flow_info *value = 0;
 	struct hdr_cursor nh;
 	struct ethhdr *eth;
+	void * iph; /* Generic pointer to iph4 or iph6 (see below) */
 #ifdef __FLOW_IPV4__
 	struct iphdr *iph4;
 #endif /* __FLOW_IPV4__ */
@@ -940,12 +936,14 @@ int  flow_label_stats(struct __sk_buff *skb)
 		case ETH_P_IP:
 			if( (ip_proto = process_ip_header(&nh, data_end, &iph4, &key)) < 0 )
 				return TC_ACT_OK; /* Should we drop in this case??? */
+			iph = iph4;
 			break;
 #endif /* ifdef __FLOW_IPV4__ */
 #ifdef __FLOW_IPV6__
 		case ETH_P_IPV6:
 			if( (ip_proto = process_ipv6_header(&nh, data_end, &iph6, &key)) < 0 ) 
 				return TC_ACT_OK;
+			iph = iph6;
 			break;
 #endif /* ifdef __FLOW_IPV6__ */
 		default:
@@ -996,15 +994,17 @@ int  flow_label_stats(struct __sk_buff *skb)
 		value->ifindex = skb->ifindex;
 	
 	update_frame_stats(value, ts);
-	ip_tot_len = update_ip_stats(value, iph4);
+	
+	ip_tot_len = update_ip_stats(value, iph);
+
 	if ( ip_proto == IPPROTO_TCP ) {
 		/* TODO: What happens in case options are present in IP? */
 		/* TODO: IPv6 */
-		int tcp_len = ip_tot_len - ((void *)tcphdr - (void *)iph4);
+		int tcp_len = ip_tot_len - ((void *)tcphdr - iph);
 		if( tcp_len < 20 )
 			bpf_debug("Error: tcp length: %d\n", tcp_len);
 		else
-			update_tcp_stats(value, iph4, tcphdr, tcp_len, data_end);
+			update_tcp_stats(value, iph, tcphdr, tcp_len, data_end);
 	}
 
 #ifdef __BCC__
