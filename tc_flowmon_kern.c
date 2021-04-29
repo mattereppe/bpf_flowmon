@@ -543,8 +543,8 @@ static __always_inline int process_ipv6_header(struct hdr_cursor *nh,
 	 * For now, an error is returned because this protocol is not
 	 * supported.
 	 */
-	memcpy(key->saddr.v6, (*ip6hdr)->saddr.s6_addr, 6);
-	memcpy(key->daddr.v6, (*ip6hdr)->daddr.s6_addr, 6);
+	memcpy(key->saddr.v6, (*ip6hdr)->saddr.s6_addr, 16);
+	memcpy(key->daddr.v6, (*ip6hdr)->daddr.s6_addr, 16);
 	key->proto = proto;
 
 	return proto;

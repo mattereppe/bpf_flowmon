@@ -61,7 +61,6 @@ $(USER_OBJ): %.o: %.c Makefile $(COMMON_H) $(EXTRA_DEPS) $(USER_DEP)
 	$(CC) -Wall -c $(CFLAGS) -o $@ $<
 
 $(USER_TARGETS): %: %.o Makefile $(USER_OBJ) 
-	echo $(USER_OBJ)
 	$(CC) -Wall $(LDFLAGS) -o $@ \
          $(USER_OBJ) $(LIBS) 
 

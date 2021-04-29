@@ -104,7 +104,7 @@ static unsigned int get_icmp_peer_type(const unsigned int type)
 	}
 }
 
-static void key_switch(const struct flow_id *key, struct flow_id *key2)
+static void key_swap(const struct flow_id *key, struct flow_id *key2)
 {
 	int len;
 
@@ -233,8 +233,8 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 	if( inet_ntop(family, (const void *)(&(fkey->daddr)), ip_addr, ADDRSTRLEN) != 0 )
 		fprintf(fd, "%s\t",ip_addr);
 	fprintf(fd, "%d\t", fkey->proto);
-	fprintf(fd, "%h\t", fkey->sport);
-	fprintf(fd, "%h\t", fkey->dport);
+	fprintf(fd, "%hu\t", fkey->sport);
+	fprintf(fd, "%hu\t", fkey->dport);
 
 	/* Print statistics. */
 	if( if_indextoname(fvalue->ifindex, if_name) == NULL )
@@ -339,7 +339,7 @@ static int flow_scan(int fd, int op, FILE *out)
 				/* Lookup the other half of the flow, then dump if both
 				 * are terminated.
 				 */
-				key_switch(&key, &key2);
+				key_swap(&key, &key2);
 				if ((bpf_map_lookup_elem(fd, &key2, &value2)) != 0) 
 					/* No flow is present in the other direction. */
 					bidirectional = 0;
@@ -370,29 +370,29 @@ static int flow_scan(int fd, int op, FILE *out)
    return count;
 }
 
-static int flow_dump(int fd, char *filename)
-{
-	struct flow_id key = { 0 }, next_key;
-	struct flow_info value = { 0 };
-
-	/* Browse the whole map and prints all relevant flow info. */
-	while ( bpf_map_get_next_key(fd, &key, &next_key) == 0 ) {
-		if ((bpf_map_lookup_elem(fd, &next_key, &value)) != 0) {
-			fprintf(stderr,
-				"ERR: bpf_map_lookup_elem failed key:0x%p\n", &next_key);
-			return -1; /* Maybe we could just go on with other keys... TODO */
-		}
-
-		flow_print(&next_key, &value, stdout);
-		if ( flow_to_remove(&next_key, &value) )
-			bpf_map_delete_elem(fd, &next_key);
-
-
-		key = next_key;
-	}
-
-   return 0;
-}
+//static int flow_dump(int fd, char *filename)
+//{
+//	struct flow_id key = { 0 }, next_key;
+//	struct flow_info value = { 0 };
+//
+//	/* Browse the whole map and prints all relevant flow info. */
+//	while ( bpf_map_get_next_key(fd, &key, &next_key) == 0 ) {
+//		if ((bpf_map_lookup_elem(fd, &next_key, &value)) != 0) {
+//			fprintf(stderr,
+//				"ERR: bpf_map_lookup_elem failed key:0x%p\n", &next_key);
+//			return -1; /* Maybe we could just go on with other keys... TODO */
+//		}
+//
+//		flow_print(&next_key, &value, stdout);
+//		if ( flow_to_remove(&next_key, &value) )
+//			bpf_map_delete_elem(fd, &next_key);
+//
+//
+//		key = next_key;
+//	}
+//
+//   return 0;
+//}
 
 void flow_poll2(int map_fd, int interval)
 {
@@ -437,6 +437,8 @@ void flow_mon(int fd, int interval, char *outpath)
 {
 	while(1) {
 		/* flow_dump(fd, filename); */
+		printf("ok");
+		exit(0);
 		flow_poll2(fd,interval );
 		flow_poll(fd, interval, outpath);
 		usleep(interval*MICROSEC_PER_SEC);
