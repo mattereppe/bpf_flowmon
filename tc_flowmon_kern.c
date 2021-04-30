@@ -990,8 +990,12 @@ int  flow_label_stats(struct __sk_buff *skb)
 		init_info(&info);
 		value = &info;
 	}
-	else
+	/* Makes no sense, since it should have been already initialized in the previous
+	 * block, but this is one more issue of the run-time verifier.
+	 */
+	if ( value )
 		value->ifindex = skb->ifindex;
+
 	
 	update_frame_stats(value, ts);
 	

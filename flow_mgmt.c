@@ -14,6 +14,7 @@
 #include <net/if.h>
 #include <linux/if_link.h> /* depend on kernel-headers installed */
 #include <linux/icmp.h>
+#include <linux/icmpv6.h>
 #include <arpa/inet.h>
 
 #include "common.h"
@@ -23,7 +24,7 @@ extern int verbose;
 
 #define MICROSEC_PER_SEC 1000000 /* 10^6 */
 #define NANOSEC_PER_SEC 1000000000 /* 10^9 */
-#define FLOW_INACTIVE_TIMEOUT_SEC 50
+#define FLOW_INACTIVE_TIMEOUT_SEC 5
 
 /* Flow termination reasons:
  * 	1 - Flow terminated normally (connection closed).
@@ -57,6 +58,23 @@ extern int verbose;
 #else
 #define ADDRSTRLEN INET_ADDRSTRLEN
 #endif /* ifdef __FLOW_IPV6__ */
+
+/* #include <netinet/icmp6.h>
+ * Missing definitions in linux/icmpv6.h.
+ */
+#define ND_ROUTER_SOLICIT           133
+#define ND_ROUTER_ADVERT            134
+#define ND_NEIGHBOR_SOLICIT         135
+#define ND_NEIGHBOR_ADVERT          136
+#define ND_REDIRECT                 137
+
+
+struct flow_counters {
+	unsigned int tot;
+	unsigned int active;
+	unsigned int purged; 
+	unsigned int dumped;
+};
 
 /* Fix for IPv6 support before using again these functions.
 static void _debug_print_flow_id(const struct flow_id *key)
@@ -99,6 +117,35 @@ static unsigned int get_icmp_peer_type(const unsigned int type)
 			return ICMP_ADDRESSREPLY;
 		case ICMP_ADDRESSREPLY:
 			return ICMP_ADDRESS;
+		case ICMPV6_ECHO_REQUEST:
+			return ICMPV6_ECHO_REPLY;
+		case ICMPV6_ECHO_REPLY:
+			return ICMPV6_ECHO_REQUEST;
+		case ICMPV6_MGM_QUERY:
+			return ICMPV6_MGM_REPORT;
+		case ICMPV6_MGM_REPORT:
+			return ICMPV6_MGM_QUERY;
+		case ICMPV6_NI_QUERY:
+			return ICMPV6_NI_REPLY;
+		case ICMPV6_NI_REPLY:
+			return ICMPV6_NI_QUERY;
+		case ICMPV6_DHAAD_REQUEST:
+			return ICMPV6_DHAAD_REPLY;
+		case ICMPV6_DHAAD_REPLY:
+			return ICMPV6_DHAAD_REQUEST;
+		case ICMPV6_MOBILE_PREFIX_SOL:
+			return ICMPV6_MOBILE_PREFIX_ADV;
+		case ICMPV6_MOBILE_PREFIX_ADV:
+			return ICMPV6_MOBILE_PREFIX_SOL;
+		/* netinet/icmpv6.h */
+		case ND_ROUTER_SOLICIT:
+			return ND_ROUTER_ADVERT;
+		case ND_ROUTER_ADVERT:
+			return ND_ROUTER_SOLICIT;
+		case ND_NEIGHBOR_SOLICIT:
+			return ND_NEIGHBOR_ADVERT;
+		case ND_NEIGHBOR_ADVERT:
+			return ND_NEIGHBOR_SOLICIT;
 		default:
 			return type;
 	}
@@ -125,6 +172,7 @@ static void key_swap(const struct flow_id *key, struct flow_id *key2)
 	key2->proto = key->proto;
 	switch ( key->proto) {
 		case IPPROTO_ICMP:
+		case IPPROTO_ICMPV6:
 			key2->sport = get_icmp_peer_type(key->sport);
 			key2->dport = key->dport;
 			break;
@@ -238,10 +286,10 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 
 	/* Print statistics. */
 	if( if_indextoname(fvalue->ifindex, if_name) == NULL )
-		strcpy("UNKNOWN", if_name);
+		strcpy(if_name, "UNKNOWN");
 	fprintf(fd, "%s\t",if_name); 	
 	if( if_indextoname(bvalue->ifindex, if_name) == NULL )
-		strcpy("UNKNOWN", if_name);
+		strcpy(if_name, "UNKNOWN");
 	fprintf(fd, "%s\t",if_name); 	
 
 	fprintf(fd, "%lld\t", fvalue->first_seen);
@@ -301,8 +349,6 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 	fprintf(fd, "%u\t", bvalue->wndw_scale);
 	
 	fprintf(fd, "\n");
-	fflush(fd);
-
 }
 
 static void flow_merge(const struct flow_id *key, const struct flow_info *value,
@@ -318,12 +364,15 @@ static void flow_merge(const struct flow_id *key, const struct flow_info *value,
 		flow_print_full(key2, value2, key, value, fd);
 }
 
-static int flow_scan(int fd, int op, FILE *out)
+static int flow_scan(int fd, int op, struct flow_counters *cnt, FILE *out)
 {
 	struct flow_id key = { 0 }, key2, next_key;
 	struct flow_info value = { 0 }, value2 = { 0 };
 	unsigned int bidirectional = 0;
 	unsigned int count = 0;
+	
+	/* Reset counters before starting the iteration. */
+	*cnt = (struct flow_counters) { 0 };
 
 	/* Browse the whole map and prints all relevant flow info. */
 	while ( bpf_map_get_next_key(fd, &key, &next_key) == 0 ) {
@@ -333,6 +382,7 @@ static int flow_scan(int fd, int op, FILE *out)
 				"ERR: bpf_map_lookup_elem failed key3:0x%p\n", &key);
 			return -1; /* Maybe we could just go on with other keys... TODO */
 		}
+		cnt->tot++;
 
 		switch (op) {
 			case OP_PURGE:
@@ -340,21 +390,36 @@ static int flow_scan(int fd, int op, FILE *out)
 				 * are terminated.
 				 */
 				key_swap(&key, &key2);
+				/* Must reset this struct to make simpler the management of 
+				 * unidirectional flows (force flow_to_remove to return 
+				 * > 0 in case the flow does not exist).
+				 */
+				value2 = (struct flow_info) { 0 };
 				if ((bpf_map_lookup_elem(fd, &key2, &value2)) != 0) 
 					/* No flow is present in the other direction. */
 					bidirectional = 0;
-				else
+				else 
 			       		bidirectional = 1;
 			
+				/* TODO: what happens in case of unidirectional flows?
+				 */
 				if( ( flow_to_remove(&key, &value) > 0 ) && 
 						( flow_to_remove(&key2, &value2) > 0 ) ) {
 					bpf_map_delete_elem(fd, &key);
-					if( bidirectional == 1 )
+					cnt->purged++;
+					if( bidirectional == 1 ) {
+						cnt->tot++;
 						bpf_map_delete_elem(fd, &key2); 
+						cnt->purged++;
+					}
 					flow_merge(&key, &value, &key2, &value2, out);	
+					cnt->dumped++;
 				}
 				else
-					count++;
+					cnt->active++; /* The other flow will be counted later on. */
+
+				count++;
+
 				break;
 			case OP_COUNT:
 				count++;
@@ -396,6 +461,8 @@ static int flow_scan(int fd, int op, FILE *out)
 
 void flow_poll2(int map_fd, int interval)
 {
+	struct flow_counters cnt;
+
 	/* Trick to pretty printf with thousands separators use %' */
 	setlocale(LC_NUMERIC, "en_US");
 
@@ -405,15 +472,22 @@ void flow_poll2(int map_fd, int interval)
 	}
 
 	while (1) {
-		flow_scan(map_fd, OP_DUMP, stdout);
+		flow_scan(map_fd, OP_DUMP, &cnt, stdout);
 		usleep(interval*MICROSEC_PER_SEC);
 	}
 }
 
 void flow_poll(int map_fd, int interval, const char *out_path)
 {
-	FILE *out=stdout;
+	//FILE *out=stdout;
+	FILE *out = fopen("flows.txt","w");
+
 	unsigned int active = 0;
+	struct flow_counters cnt = { 0 };
+	time_t timer;
+    	char buffer[26];
+    	struct tm* tm_info;
+
 
 	/* Trick to pretty printf with thousands separators use %' */
 	setlocale(LC_NUMERIC, "en_US");
@@ -424,11 +498,21 @@ void flow_poll(int map_fd, int interval, const char *out_path)
 	}
 
 	while (1) {
+    		timer = time(NULL);
+    		tm_info = localtime(&timer);
+    		strftime(buffer, 26, "%Y-%m-%d %H:%M:%S", tm_info);
+
 		/* TODO: peridically change the filename/folder
 		 * to organize the data into multiple files.
 		 */
-		active = flow_scan(map_fd, OP_PURGE, out);
+		active = flow_scan(map_fd, OP_PURGE, &cnt, out);
+		printf("*******************************\n");
+		printf("Timestamp: %s\n", buffer);
 		printf("Active unidirectional flows: %d\n", active);
+		printf("Tot flows: %u\n", cnt.tot);
+		printf("Active flows: %u\n", cnt.active);
+		printf("Purged flows: %u\n", cnt.purged);
+		printf("Dumped flows: %u\n", cnt.dumped);
 		usleep(interval*MICROSEC_PER_SEC);
 	}
 }

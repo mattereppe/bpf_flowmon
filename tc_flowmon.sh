@@ -1,6 +1,6 @@
 #!/bin/bash
 
-IFACE="eth2"
+IFACE="eth0"
 BPFPROG="tc_flowmon_kern.o"
 BPFSEC="flowmon"
 BPFMAP="/sys/fs/bpf/tc/globals/flowmon_stats"
