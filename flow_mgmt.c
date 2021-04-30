@@ -233,10 +233,14 @@ static int flow_to_remove(struct flow_id *key, struct flow_info *value)
  */
 static __always_inline int get_family(const int ip_version)
 {
-	if( ip_version == 4 )
-		return AF_INET;
-	else
-		return AF_INET6;
+	switch( ip_version ) {
+		case 4:
+			return AF_INET;
+		case 6:
+			return AF_INET6;
+		default:
+			return -1;
+	}
 }
 
 /* Print the flow statistics.
@@ -274,6 +278,10 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 	int family;
 
 	family = get_family(fvalue->version);
+	if( family < 0 ) {
+		printf("Unknown family for IP version: %d\n", fvalue->version);
+		return;
+	}
 
 	/* Print the flow id. */
 	if( inet_ntop(family, (const void *)(&(fkey->saddr)), ip_addr, ADDRSTRLEN) != 0 )
@@ -357,8 +365,11 @@ static void flow_merge(const struct flow_id *key, const struct flow_info *value,
 {
 	/* For my convention, the forward direction is given by the first
 	 * packet seen of the two flows.
+	 * Mind that for unidirectional flows the forward flow is always
+	 * the first one.
 	 */
-	if( value->first_seen < value2->first_seen )
+	if( value->first_seen < value2->first_seen ||
+			value2->first_seen == 0)
 		flow_print_full(key, value, key2, value2, fd);
 	else
 		flow_print_full(key2, value2, key, value, fd);
@@ -431,6 +442,8 @@ static int flow_scan(int fd, int op, struct flow_counters *cnt, FILE *out)
 
 
 	}
+
+	fflush(out);
 
    return count;
 }

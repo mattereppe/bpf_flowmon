@@ -6,7 +6,7 @@
 /* Max number of flows that can be
  *	monitored. 
  */
-#define MAXFLOWS		1024 
+#define MAXFLOWS		8192 
 
 /* Define the identifier for each flow. 
  * Managing IPv4 and IPv6 at the same time is not trivial. There are two 
