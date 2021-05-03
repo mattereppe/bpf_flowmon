@@ -401,23 +401,20 @@ static void flow_merge(const struct flow_id *key, const struct flow_info *value,
 
 static int flow_scan(int fd, int op, struct flow_counters *cnt, FILE *out)
 {
-	struct flow_id key = { 0 }, key2, next_key;
+	struct flow_id key, key2, prev_key = { 0 };
 	struct flow_info value = { 0 }, value2 = { 0 };
 	unsigned int bidirectional = 0;
-	unsigned int count = 0;
 	
 	/* Reset counters before starting the iteration. */
 	*cnt = (struct flow_counters) { 0 };
 
 	/* Browse the whole map and prints all relevant flow info. */
-	while ( bpf_map_get_next_key(fd, &key, &next_key) == 0 ) {
-		key = next_key;
+	while ( bpf_map_get_next_key(fd, &prev_key, &key) == 0 ) {
 		if ((bpf_map_lookup_elem(fd, &key, &value)) != 0) {
 			fprintf(stderr,
 				"ERR: bpf_map_lookup_elem failed key3:0x%p\n", &key);
 			return -1; /* Maybe we could just go on with other keys... TODO */
 		}
-		printf("Chiara pompinara: %u\n", cnt->tot);
 		cnt->tot++;
 
 		switch (op) {
@@ -451,14 +448,14 @@ static int flow_scan(int fd, int op, struct flow_counters *cnt, FILE *out)
 					flow_merge(&key, &value, &key2, &value2, out);	
 					cnt->dumped++;
 				}
-				else
+				else {
 					cnt->active++; /* The other flow will be counted later on. */
-
-				count++;
+					prev_key = key;
+				}
 
 				break;
 			case OP_COUNT:
-				count++;
+				cnt->tot++;
 				break;
 			case OP_DUMP:
 				flow_print(&key, &value, out);
@@ -470,7 +467,7 @@ static int flow_scan(int fd, int op, struct flow_counters *cnt, FILE *out)
 
 	fflush(out);
 
-   return count;
+   return cnt->tot;
 }
 
 //static int flow_dump(int fd, char *filename)
