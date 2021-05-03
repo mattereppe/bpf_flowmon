@@ -24,7 +24,8 @@ extern int verbose;
 
 #define MICROSEC_PER_SEC 1000000 /* 10^6 */
 #define NANOSEC_PER_SEC 1000000000 /* 10^9 */
-#define FLOW_INACTIVE_TIMEOUT_SEC 5
+#define FLOW_INACTIVE_TIMEOUT_SEC 10
+#define FLOW_HANGOUT_TIMEOUT_SEC 3
 
 /* Flow termination reasons:
  * 	1 - Flow terminated normally (connection closed).
@@ -209,6 +210,29 @@ static int flow_to_remove(struct flow_id *key, struct flow_info *value)
 	 * - FIN ack is set
 	 * - RST ack is set
 	 */
+
+	/* TODO: If additional traffic arrives after the first FIN/RST
+	 * packet, such traffic is counted as an additional flow. To solve
+	 * this issue, an INACTIVITY timeout should be provided and checked 
+	 * before removing the flow.
+
+	 *	if( (err = clock_gettime(CLOCK_BOOTTIME, &now) ) < 0 ) {
+	 *		printf("Error getting current time: %d\n", errno);
+	 *		return -1;
+	 *	}
+	 *	last = value->last_seen / NANOSEC_PER_SEC;
+	 *
+	 *	if(key->proto == IPPROTO_TCP)
+	 *	{
+	 *		if(now.tv_sec > (last + FLOW_HANGOUT_TIMEOUT_SEC ) &&
+	 *			> value->cumulative_flags & TCP_FLAG_FIN) 
+	 *			return FLOW_TERM_CLOSED;
+	 *		if(now.tv_sec > (last + FLOW_HANGOUT_TIMEOUT_SEC ) &&
+	 *			value->cumulative_flags & TCP_FLAG_RST) 
+	 *			return FLOW_TERM_RESET;
+	 *	}
+	
+	 * ... and remove the unnecessary code that follows!  */
 	if(key->proto == IPPROTO_TCP)
 	{
 		if(value->cumulative_flags & TCP_FLAG_FIN) 
@@ -393,6 +417,7 @@ static int flow_scan(int fd, int op, struct flow_counters *cnt, FILE *out)
 				"ERR: bpf_map_lookup_elem failed key3:0x%p\n", &key);
 			return -1; /* Maybe we could just go on with other keys... TODO */
 		}
+		printf("Chiara pompinara: %u\n", cnt->tot);
 		cnt->tot++;
 
 		switch (op) {
