@@ -4,6 +4,13 @@
 # network flows and run the userland utility
 # to dump finished flows.
 
+FLOWMON_NAME="tc_flowmon_user"
+UPLANED="/usr/local/bin/$FLOWMON_NAME"
+PIDFILE="/var/run/bpfflowmon/$FLOWMON_NAME.pid"
+IFACELIST="/var/run/bpfflowmon/iface.list"
+LOGFILE="/var/log/bpfflowmon.log"
+DUMPDIR="/tmp"
+
 IFACE="lo"
 BPFPROG="tc_flowmon_kern.o"
 BPFSEC="flowmon"
@@ -25,7 +32,7 @@ usage()
 			[ -u | --userland ] <user_prog>
 			[ --show-defaults ]
 			[ -h | --help ]
-			[ start | stop | purge ]
+			{ start | stop | purge }
 			
 		Commands:
 		start: load the filters on the specified devices and run the userland utility
@@ -57,8 +64,26 @@ show_defaults()
 	echo "Queue direction: " $DIR
 	echo "Dump directory: " $OUTDIR
 	echo "Dump interval: " $INTERVAL
+	echo "Userland program: " $UPLANED
 
 	exit 3
+}
+
+remove_bpf_programs()
+{
+	if [ ! -f $IFACELIST ]; then
+		echo "Unable to auto-detect interface list!";
+		exit 1;
+	fi
+	IFACE=`cat $IFACELIST`
+
+	echo "Unloading bpf program(s)...";
+	for i in $IFACE; do
+		echo -n "- " $i ":"
+		tc filter del dev $i ingress
+		tc filter del dev $i egress
+		echo "	 done!"
+	done
 }
 
 PARSED_ARGUMENTS=$(getopt -a -n $0 -o i:ap:s:m:d:w:h --long all,interface:,program:,section:,map:,dir:,write:,show-defaults,help -- "$@")
@@ -67,7 +92,7 @@ if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
 fi
 
-echo "PARSED_ARGUMENTS is $PARSED_ARGUMENTS"
+#echo "PARSED_ARGUMENTS is $PARSED_ARGUMENTS"
 eval set -- "$PARSED_ARGUMENTS"
 while :
 do
@@ -104,6 +129,9 @@ do
 			shift 2;;
 		--show-defaults)
 			show_defaults;;
+		-u | --userland)
+			UPLANED="$2";
+			;;
 		-h | --help)
 			usage;;
  # -- means the end of the arguments; drop this, and break out of the while loop
@@ -120,11 +148,6 @@ if [ "$IFACE" == all ]; then
 	IFACE="$DEV_LIST";
 fi
 
-echo "Remaining positional parameters: " $@
-echo "Number of positional parameters: " $#
-echo "Interfaces: " $IFACE
-
-
 if [[ $# -ne 1 ]]
 then
 	echo "Wrong number of arguments!"
@@ -133,41 +156,48 @@ fi
 
 CMD=$@
 
+FLOWMON_OPTS="-- -i $INTERVAL -d $DUMPDIR -l $LOGFILE"
+
 case $CMD in
 
 	start)
 		echo "Loading bpf program on: ";
 		for i in $IFACE; do
-			echo -n "- " $IFACE 
-			clsact=`tc qdisc add dev $IFACE clsact`
-			[[ ${#clsact} -eq 0 ]] &&  tc qdisc add dev $IFACE clsact;
+			echo -n "- " $i ":"
+			clsact=`tc qdisc add dev $i clsact`
+			[[ ${#clsact} -eq 0 ]] &&  tc qdisc add dev $i clsact;
 
 			if [ "$DIR" == "ingress" ] || [ "$DIR" == "all" ]; then
-				tc filter add dev $IFACE ingress bpf da obj $BPFPROG sec $BPFSEC
+				tc filter add dev $i ingress bpf da obj $BPFPROG sec $BPFSEC
 			fi
 			if [ "$DIR" == "egress" ] || [ "$DIR" == "all" ]; then
-				tc filter add dev $IFACE egress bpf da obj $BPFPROG sec $BPFSEC
+				tc filter add dev $i egress bpf da obj $BPFPROG sec $BPFSEC
 			fi
 
 			echo "   done!"
 		done
-		echo "TODO: start userland utility in background"
-		echo "Hint: save current status to /var/run/flowmon/"
+		echo "$IFACE" > $IFACELIST
+
+		# start-stop-daemon --start -C -O $LOGFILE -b -m --pidfile $PIDFILE \
+		start-stop-daemon --start -b -m --pidfile $PIDFILE \
+		  	--startas $UPLANED  $FLOWMON_OPTS
 		;;
 
 	stop)
-		echo "Unloading bpf program(s)...";
+		start-stop-daemon --stop --pidfile $PIDFILE
 
-		echo "TODO: unload programs from all interfaces"
+		remove_bpf_programs;
+
 		echo "Manually remove the pinned map when no more needed"
 		;;
 
 	purge)
-		echo "Removing pinned map...";
-		echo "TODO: unload programs from all interfaces"
-		tc filter del dev $IFACE ingress
-		tc filter del dev $IFACE egress
+		remove_bpf_programs;
+		
+		echo -n "Removing pinned map...";
 		rm -f $BPFMAP
+		echo "	done!";
+
 		;;
 	*)
 		echo "Unknown command: " $CMD;
