@@ -576,9 +576,10 @@ void flow_poll(int map_fd, int interval, const char * logfile, const char *out_p
 	setlocale(LC_NUMERIC, "en_US");
 
 	/* Print stats "header" */
-	if (verbose) {
+/*	if (verbose) {
 		printf("\n");
 	}
+	*/
 
 	while (1) {
     		timer = time(NULL);

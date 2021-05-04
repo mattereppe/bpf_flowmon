@@ -2,6 +2,7 @@
 XDP_TARGETS := tc_flowmon_kern
 USER_TARGETS := tc_flowmon_user
 PYTHON_TARGETS := 
+INSTALL_DIR := /usr/local/bin
 
 LLC ?= llc
 CLANG ?= clang
@@ -42,6 +43,8 @@ all: llvm-check $(USER_TARGETS) $(XDP_OBJ)
 
 .PHONY: clean $(CLANG) $(LLC)
 
+install:
+	cp -a $(USER_TARGETS) $(INSTALL_DIR)
 
 clean:
 	rm -rf $(LIBBPF_DIR)/build
