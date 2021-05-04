@@ -3,6 +3,9 @@
 #include <string.h>
 #include <errno.h>
 #include <getopt.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include <locale.h>
 #include <unistd.h>
@@ -20,6 +23,7 @@
 #include "common.h"
 
 #define PINFILENAMELEN 40
+#define OUTFILENAMELEN 40
 extern int verbose;
 
 #define MICROSEC_PER_SEC 1000000 /* 10^6 */
@@ -512,17 +516,61 @@ void flow_poll2(int map_fd, int interval)
 	}
 }
 
-void flow_poll(int map_fd, int interval, const char *out_path)
+void flow_poll(int map_fd, int interval, const char * logfile, const char *out_path)
 {
 	//FILE *out=stdout;
-	FILE *out = fopen("flows.txt","w");
+	FILE *log;
+	FILE *out;
+	char outfile[OUTFILENAMELEN];
+	char tmp[13];
+  
+	if ( out_path != NULL &&
+			strlen(out_path) < OUTFILENAMELEN ) {
+		strcpy(outfile, out_path);
+		strcat(outfile, "/");
+	}
+	else
+		outfile[0] = '\0';
+
+	if( !logfile )
+		log = stdout;
+	else
+		log = fopen(logfile, "w");
 
 	unsigned int active = 0;
 	struct flow_counters cnt = { 0 };
 	time_t timer;
-    	char buffer[26];
-    	struct tm* tm_info;
+  	char buffer[26];
+  	struct tm* tm_info;
 
+   timer = time(NULL);
+   tm_info = localtime(&timer);
+	strftime(tmp, 12, "%Y-%m-%d/", tm_info);
+	if( strlen(outfile) + 12 + 10 < OUTFILENAMELEN-1 )
+		strncat(outfile, tmp, 12);
+	else {
+		fprintf(stderr, "Error: file name too long for flows\n");
+		strcpy (outfile, "/tmp/");
+		strncat(outfile, tmp, 12);
+		fprintf(stderr, "Changing to: %s\n",outfile);
+	}
+
+	struct stat st = {0};
+
+	if (stat(outfile, &st) == -1) {
+	    mkdir(outfile, 0777);
+	}
+
+	strftime(tmp, 11, "%H%M%S.txt", tm_info);
+	strncat(outfile, tmp, 11);
+		
+	out = fopen(outfile,"w");
+	if( !out )
+	{
+		fprintf(stderr, "Error opening dump file!");
+		exit(1);
+	}
+	fflush(out);
 
 	/* Trick to pretty printf with thousands separators use %' */
 	setlocale(LC_NUMERIC, "en_US");
@@ -541,25 +589,18 @@ void flow_poll(int map_fd, int interval, const char *out_path)
 		 * to organize the data into multiple files.
 		 */
 		active = flow_scan(map_fd, OP_PURGE, &cnt, out);
-		printf("*******************************\n");
-		printf("Timestamp: %s\n", buffer);
-		printf("Active unidirectional flows: %d\n", active);
-		printf("Tot flows: %u\n", cnt.tot);
-		printf("Active flows: %u\n", cnt.active);
-		printf("Purged flows: %u\n", cnt.purged);
-		printf("Dumped flows: %u\n", cnt.dumped);
+		if( verbose ) {
+			fprintf(log, "*******************************\n");
+			fprintf(log, "Timestamp: %s\n", buffer);
+			fprintf(log, "Active unidirectional flows: %d\n", active);
+			fprintf(log, "Tot flows: %u\n", cnt.tot);
+			fprintf(log, "Active flows: %u\n", cnt.active);
+			fprintf(log, "Purged flows: %u\n", cnt.purged);
+			fprintf(log, "Dumped flows: %u\n", cnt.dumped);
+			fflush(log);
+		}
+
 		usleep(interval*MICROSEC_PER_SEC);
 	}
 }
 
-void flow_mon(int fd, int interval, char *outpath)
-{
-	while(1) {
-		/* flow_dump(fd, filename); */
-		printf("ok");
-		exit(0);
-		flow_poll2(fd,interval );
-		flow_poll(fd, interval, outpath);
-		usleep(interval*MICROSEC_PER_SEC);
-	}
-}
