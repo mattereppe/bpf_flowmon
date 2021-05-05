@@ -10,7 +10,7 @@ Both IPv4 and IPv6 are supported. Only a very limited number of TCP features are
 Though the current set of feature is only a subset of what envisioned by protocols like NetFlow and IPFIX (see, for example, the list of <A href="https://www.ntop.org/guides/nprobe/flow_information_elements.html">Information Elemenents available from nProbe</A>), the code is quite limited in size, and allows extensions to collect custom metrics and statistics. Once more, we remark that the current implementation is rather limited by the stack size and runtime verification.
 Flows are identified by the common pattern <code><src_ip_addr, dst_ip_addr, proto, src_port, dst_port></code>. Termination is detect by FIN/RST flags for TCP flows, and by an inactivity timeout in any case. Termination of other connection oriented protocols (like SCTP) is not implemented yet. ICMP flows also report the specific operation (inferred from the <code>type</code> field), which is reported in the <code>src_port</code> field.
 
-So far, the tc hook is used, because it allows to inspect both incoming and outgoing traffic. Both a single or all interfaces can be monitored, to support different use cases. Porting to the XDP hook is rather straighforward, but in that case outgoing traffic is not visible. This means that routed connections could be seen entirely (by monitoring all interfaces), whereas only half of the local connections is visible (received packets).
+So far, the <code>TC</code> hook is used, because it allows to inspect both incoming and outgoing traffic. Both a single or all interfaces can be monitored, to support different use cases. Porting to the XDP hook is rather straighforward, but in that case outgoing traffic is not visible. This means that routed connections could be seen entirely (by monitoring all interfaces), whereas only half of the local connections is visible (received packets).
 
 The main objective so far was to investigate the possibility to collect metrics and statistics through BPF programs, and less effort has been devoted to make the whole framework user-friendly. The BPF code currently supports both <A href="https://github.com/libbpf/libbpf">libbpf</A> and <A href="https://github.com/iovisor/bcc">BCC</A>, but the userland utility has been developed only for the former, and only partially. For all of these reason, management of BPF programs is done through a dedicated script instead of being integrated into the userland utility.
 
@@ -20,7 +20,7 @@ Monitoring of a subset of interfaces is not supported by the current management 
 ## Build and run
 
 This repository provides three main tools:
-* A BPF program for the <code>TC</code> hooks, which collects metrics and statistics for unidirectional network flows (<code>tc_flowmon_kern.o</code>).
+* A BPF program for the <code>TC</code> hook, which collects metrics and statistics for unidirectional network flows (<code>tc_flowmon_kern.o</code>).
 * A userland utility that scans the list of flows, merges bidirectional flows, dumps and purges terminated flows (<code>tc_flowmon_user</code>).
 * A management script used to load/unload BPF programs and run the userland utility (<code>tc_flowmon.sh</code>).
 
@@ -32,11 +32,11 @@ and
 ```
 make install
 ```
-to install the userland utility to /usr/local/bin.
+to install the userland utility to <code>/usr/local/bin</code>.
 
 To use the framework, you can either load the BPF programs through the management script and then run the userland utility manually, or launch everyting as a daemon through the management script.
 
-For the first option, use the load command of the script:
+For the first option, use the <code>load</code> command of the script:
 ```
 % sudo ./tc_flowmon.sh -a load
 ```
@@ -58,7 +58,7 @@ and when done stop it:
 % sudo ./tc_flowmon.sh stop
 ```
 
-Note that you have to explicitely remove the BPF map. This can be done with the purge command:
+Note that you have to explicitely remove the BPF map. This can be done with the <code>purge</code> command:
 ```
 % sudo ./tc_flowmon.sh purge
 ```
