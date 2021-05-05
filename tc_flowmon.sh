@@ -119,6 +119,8 @@ remove_bpf_programs()
 		tc filter del dev $i egress
 		echo "	 done!"
 	done
+
+	rm -f $IFACELIST
 }
 
 PARSED_ARGUMENTS=$(getopt -a -n $0 -o i:ap:s:m:d:w:u:h --long all,interface:,int:,program:,section:,map:,direction:,write:,show-defaults,userland:,help -- "$@")
