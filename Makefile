@@ -43,7 +43,7 @@ all: llvm-check $(USER_TARGETS) $(XDP_OBJ)
 
 .PHONY: clean $(CLANG) $(LLC)
 
-install:
+install: all
 	cp -a $(USER_TARGETS) $(INSTALL_DIR)
 
 clean:
