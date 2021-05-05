@@ -32,13 +32,14 @@ usage()
 			[ -u | --userland ] <user_prog>
 			[ --show-defaults ]
 			[ -h | --help ]
-			{ start | load | stop | unload }
+			{ start | load | stop | unload | purge }
 			
 		Commands:
 		start: load the filters on the specified devices and run the userland utility
 		load: load the filters on the specified interfaces
 		stop: stop the userland utility
 		unload: stop the userland utility (if running) and remove bpf programs
+		purge: remove bpf programs and purge the BPF map
 
 		Options meaning:
 		-i, --interface: network interface to load the inspection program (default: lo)
@@ -218,7 +219,11 @@ case $CMD in
 
 	unload)
 		remove_bpf_programs;
+		;;
 		
+	purge)
+		remove_bpf_programs;
+
 		echo -n "Removing pinned map...";
 		rm -f $BPFMAP
 		echo "	done!";
