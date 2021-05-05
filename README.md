@@ -8,7 +8,7 @@ The current version is far from being complete and only represents the prelimina
 The current implementation provides a static set of information about network and transport layers. Ethernet frames are not counted to provide a more general tool that works on several links (including VPNs and tunnels).
 Both IPv4 and IPv6 are supported. Only a very limited number of TCP features are collected. This is due to limitations of the BPF framework, which imposes a limited stack size and execution branches. Future work would consider the possibility to use tail calls or multiple filters to overcome these limitations.
 Though the current set of feature is only a subset of what envisioned by protocols like NetFlow and IPFIX (see, for example, the list of <A href="https://www.ntop.org/guides/nprobe/flow_information_elements.html">Information Elemenents available from nProbe</A>), the code is quite limited in size, and allows extensions to collect custom metrics and statistics. Once more, we remark that the current implementation is rather limited by the stack size and runtime verification.
-Flows are identified by the common pattern <i><src_ip_addr, dst_ip_addr, proto, src_port, dst_port></i>. Termination is detect by FIN/RST flags for TCP flows, and by an inactivity timeout in any case. Termination of other connection oriented protocols (like SCTP) is not implemented yet. ICMP flows also report the specific operation (inferred from the type field), which is reported in the src_port field.
+Flows are identified by the common pattern <code><src_ip_addr, dst_ip_addr, proto, src_port, dst_port></code>. Termination is detect by FIN/RST flags for TCP flows, and by an inactivity timeout in any case. Termination of other connection oriented protocols (like SCTP) is not implemented yet. ICMP flows also report the specific operation (inferred from the <code>type</code> field), which is reported in the <code>src_port</code> field.
 
 So far, the tc hook is used, because it allows to inspect both incoming and outgoing traffic. Both a single or all interfaces can be monitored, to support different use cases. Porting to the XDP hook is rather straighforward, but in that case outgoing traffic is not visible. This means that routed connections could be seen entirely (by monitoring all interfaces), whereas only half of the local connections is visible (received packets).
 
@@ -63,7 +63,7 @@ Note that you have to explicitely remove the BPF map. This can be done with the 
 % sudo ./tc_flowmon.sh purge
 ```
 
-** Usage
+## Usage
 
 There are several paramters that can be given to the userland utility. They are reported by the <code>--help</code> option:
 ```
@@ -118,11 +118,11 @@ Usage: ./tc_flowmon.sh [ -i | --interface ] <device>
 ```
 Default values in this case can be read directly from the script of listed with the <code>--show-defaults</code> option.
 
-** Testing
+## Testing
 
 The easiest way to test the program is to inject some traffic from pcap traces. The <A href="https://tcpreplay.appneta.com/">tcpreplay</A> utility can be used to this purpose, together with the <A href="https://tcpreplay.appneta.com/wiki/captures.html">sample captures</A>.
 
-** Acknowledgement
+## Acknowledgement
 
 This work was supported in part by the European Commission under Grant Agreements no. 786922 (<A href="https://www.astrid-project.eu/">ASTRID</A>) and no. 833456 (<A href="https://guard-project.eu/">GUARD</A>).
 
