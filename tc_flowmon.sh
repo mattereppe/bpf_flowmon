@@ -15,7 +15,7 @@ IFACE="lo"
 BPFPROG="tc_flowmon_kern.o"
 BPFSEC="flowmon"
 BPFMAP="/sys/fs/bpf/tc/globals/flowmon_stats"
-DIR="ingress"
+DIR="both"
 OUTDIR="./"
 INTERVAL="10"
 
@@ -32,12 +32,13 @@ usage()
 			[ -u | --userland ] <user_prog>
 			[ --show-defaults ]
 			[ -h | --help ]
-			{ start | stop | purge }
+			{ start | load | stop | unload }
 			
 		Commands:
 		start: load the filters on the specified devices and run the userland utility
+		load: load the filters on the specified interfaces
 		stop: stop the userland utility
-		purge: stop the userland utility (if running) and remove bpf programs
+		unload: stop the userland utility (if running) and remove bpf programs
 
 		Options meaning:
 		-i, --interface: network interface to load the inspection program (default: lo)
@@ -46,7 +47,7 @@ usage()
 		-p, --program: name of the bpf program to load
 		-s, --section: name of the bpf section to load
 		-m, --map: name of the map to be used for saving flows statistics
-		-d, --direction: load filter on the ingress/egress/both path (default: ingress)
+		-d, --direction: load filter on the ingress/egress/both path (default: both)
 		-w, --write: dump the flows on file (default: stdout)
 		-u, --userland: name of the userland program to process flows
 		--show-defaults: show defaults value for all parameters
@@ -69,6 +70,39 @@ show_defaults()
 	exit 3
 }
 
+load_bpf_programs()
+{
+		echo "Loading bpf program on: ";
+		for i in $IFACE; do
+			echo -n "- " $i ":"
+			present=`tc qdisc show dev $i handle ffff: | grep -c "clsact"`;
+			if [ $present -eq 0 ]; then
+				echo -n " (Adding clsact)";
+				tc qdisc add dev $i clsact;
+			fi
+
+			if [ "$DIR" == "ingress" ] || [ "$DIR" == "both" ]; then
+				present=`tc filter show dev $i ingress | grep -c $BPFPROG`;
+				if [ $present -gt 0 ]; then
+					echo -n "	ingress already present/";
+				else
+					tc filter add dev $i ingress bpf da obj $BPFPROG sec $BPFSEC
+				fi
+			fi
+			if [ "$DIR" == "egress" ] || [ "$DIR" == "both" ]; then
+				present=`tc filter show dev $i egress | grep -c $BPFPROG`;
+				if [ $present -gt 0 ]; then
+					echo -n "egress already present ";
+				else
+					tc filter add dev $i egress bpf da obj $BPFPROG sec $BPFSEC
+				fi
+			fi
+
+			echo "   done!"
+		done
+		echo "$IFACE" > $IFACELIST
+}
+
 remove_bpf_programs()
 {
 	if [ ! -f $IFACELIST ]; then
@@ -86,7 +120,7 @@ remove_bpf_programs()
 	done
 }
 
-PARSED_ARGUMENTS=$(getopt -a -n $0 -o i:ap:s:m:d:w:h --long all,interface:,program:,section:,map:,dir:,write:,show-defaults,help -- "$@")
+PARSED_ARGUMENTS=$(getopt -a -n $0 -o i:ap:s:m:d:w:u:h --long all,interface:,int:,program:,section:,map:,direction:,write:,show-defaults,userland:,help -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -108,6 +142,7 @@ do
 			shift 2;;
 		-p | --program)
 			PROG="$2";
+			test  -f $PROG  || echo "BPF program not found: $PROG"; exit 2;
 			shift 2;;
 		-s | --section)
 			SEC="$2";
@@ -119,7 +154,7 @@ do
 			DIR="$2";
 			if [ "$DIR" != "ingress" ] &&
 					  [ "$DIR" != "egress" ] &&
-					  [ "$DIR" != "all" ]; then
+					  [ "$DIR" != "both" ]; then
 				echo "Invalid filter direction: " $DIR;
 				usage ;
 			fi
@@ -131,6 +166,7 @@ do
 			show_defaults;;
 		-u | --userland)
 			UPLANED="$2";
+			test -x $UPLANED || echo "Userland utility not found or not executable: $UPLANED"; exit 2;
 			;;
 		-h | --help)
 			usage;;
@@ -160,23 +196,12 @@ FLOWMON_OPTS="-- -i $INTERVAL -d $DUMPDIR -l $LOGFILE"
 
 case $CMD in
 
+	load)
+		load_bpf_programs;
+		;;
+
 	start)
-		echo "Loading bpf program on: ";
-		for i in $IFACE; do
-			echo -n "- " $i ":"
-			clsact=`tc qdisc add dev $i clsact`
-			[[ ${#clsact} -eq 0 ]] &&  tc qdisc add dev $i clsact;
-
-			if [ "$DIR" == "ingress" ] || [ "$DIR" == "all" ]; then
-				tc filter add dev $i ingress bpf da obj $BPFPROG sec $BPFSEC
-			fi
-			if [ "$DIR" == "egress" ] || [ "$DIR" == "all" ]; then
-				tc filter add dev $i egress bpf da obj $BPFPROG sec $BPFSEC
-			fi
-
-			echo "   done!"
-		done
-		echo "$IFACE" > $IFACELIST
+		load_bpf_programs;
 
 		# start-stop-daemon --start -C -O $LOGFILE -b -m --pidfile $PIDFILE \
 		start-stop-daemon --start -b -m --pidfile $PIDFILE \
@@ -191,7 +216,7 @@ case $CMD in
 		echo "Manually remove the pinned map when no more needed"
 		;;
 
-	purge)
+	unload)
 		remove_bpf_programs;
 		
 		echo -n "Removing pinned map...";
