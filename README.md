@@ -1,4 +1,4 @@
-# bpf_flowmon
+# bpfFlowMon
 
 Network flow monitoring with bpf programs. This is part of the investigation on how bpf filters can be used for packet inspection. It is not conceived as fully replacement of existing tools, which use more efficient techniques based on kernel by-pass or hardware support. Instead, the main objective is to understand if and to what extend BPF programs can be used in softwarized environments, where existing techniques do not bring the expected benefits or are not applicable.
 The current version is far from being complete and only represents the preliminary step towards a more flexible approach based on the creation of dynamic programs for different tasks. The ultimate goals would be to replace existing scripting techniques already available for IDS and other cybersecurity tools with BPF programs.
