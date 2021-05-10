@@ -19,6 +19,9 @@ import pathlib
 import inspect
 import json
 import netifaces
+import ipaddress
+import socket
+import copy
 
 class InvalidParameterError(Exception):
     """Exception raised for invalid parameters in the input
@@ -49,6 +52,24 @@ def getAttrs(unknownClass):
 
     return attr_list
 
+def getMeths(unknownClass):
+    attr_list = list()
+    # getmembers() returns all the
+    # members of an object
+    for i in inspect.getmembers(unknownClass):
+        # i[0] contains the name
+        # i[1] contains the value
+    
+        # to remove private and protected
+        # functions
+        if not i[0].startswith('_'):
+            attr_list.append(i)
+
+    return attr_list
+
+
+
+
 def toJson(bpfMap):
     fieldList = list()
 
@@ -71,6 +92,42 @@ def toJson(bpfMap):
     # TODO: Add support for serialization of uncommon c_types (e.g., arrays of int)
     print(json.dumps( metrics ))
 
+def get_icmp_peer_type(port):
+    return port
+
+def swap(flowid):
+    flowid2 = copy.deepcopy(flowid)
+    flowid2.saddr.v6 = flowid.daddr.v6
+    flowid2.daddr.v6 = flowid.saddr.v6
+    if( flowid2.proto == 1):
+        flowid2.sport = get_icmp_peer_type(flowid.sport)
+        flowid2.dport = flowid.dport
+    else:
+        flowid2.sport = flowid.dport
+        flowid2.dport = flowid.sport
+
+    return flowid2
+
+def find(id, values):
+    for flow in values:
+        if( bytes(flow[0].saddr) == bytes(id.saddr) and 
+                bytes(flow[0].daddr) == bytes(id.daddr) and 
+                flow[0].proto == id.proto and
+                flow[0].sport == id.sport and
+                flow[0].dport == id.dport ):
+
+            return flow[1];
+    raise ValueError
+
+def print_id(id, stats):
+    if(stats.version==4):
+      saddr = ipaddress.ip_address(socket.ntohl(id.saddr.v4))
+      daddr = ipaddress.ip_address(socket.ntohl(id.daddr.v4))
+    else:
+      saddr = ipaddress.IPv6Address(bytes(id.saddr.v6))
+      daddr = ipaddress.IPv6Address(bytes(id.daddr.v6))
+
+    print(str(saddr), ":", socket.ntohs(id.sport), " -> ", str(daddr), ":", socket.ntohs(id.dport), " (", id.proto, ")")
 
 # Parse parameters from the command line
 parser = argparse.ArgumentParser(description='Start bpf flow monitor.',
@@ -104,12 +161,14 @@ direction=param.direction
 ipr = IPRoute()
 
 if dev == 'all':
-    if_list=netifaces.interface()
+    if_list=netifaces.interfaces()
 else:
     if_list = []
     if_list.append(dev)
 
-prog = BPF(src_file=bpfprog, cflags=["-I/usr/include/", "-D_DEBUG_=1", "-D __BPF_TRACING__"], debug=0)
+# WARNING: Cannot enable bpf_debug (-D _DEBUG_) because bcc does not support builtin
+# inside a macro (see the source code for the link).
+prog = BPF(src_file=bpfprog, cflags=["-I/usr/include/", "-D __BPF_TRACING__", "-D __FLOW_IPV4__", "-D __FLOW_IPV6__"], debug=0)
 fn = prog.load_func(bpfsec, BPF.SCHED_CLS)
 
 for iface in if_list:
@@ -139,13 +198,41 @@ try:
     while True:
         time.sleep(output_interval) # Wait for next values to be available
         values = hist.items()
+        for flow in values:
+            id = flow[0];
+            stats = flow[1];
+            
+
+            print("Id")
+            print_id(id, stats)
+
+
+            id2 = swap(id)
+            try:
+                stats2 = find(id2, values)
+                print("Id2")
+                print_id(id2, stats2)
+
+
+# Development stops here because the current release for Debian (0.18) does not support delete of an entry.
+# I found that the latest release indeed supports the items_delete_batch method:
+# https://github.com/iovisor/bcc/blob/master/src/python/bcc/table.py
+# but compilation for Debian does not look straighforward.
+# For now I give up; maybe I could come back to this point if a newer version will be available
+
+
+
+                hist.items_delete_batch(id)
+                print(getMeths(hist))
+            except ValueError:
+                print("Not found!!!")
+
 
         now = time.time()
         # -- TODO: Put the following in a function 
             #print(toJson(values[i][0]))
-        toJson(values)
+        #toJson(values)
 
-        print(values);
 
 
 #            period = now - prev

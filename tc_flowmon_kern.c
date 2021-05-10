@@ -29,24 +29,17 @@
 #endif
 
 #ifdef _DEBUG_
-#ifndef __BCC__
+/* WARNING! BCC does not support usage of builtin helpers within a macro, 
+ * for some reasons due to rewriting of part of code.
+ * See: https://github.com/iovisor/bcc/blob/master/src/cc/frontends/clang/b_frontend_action.cc
+ * (search for: "cannot use builtin inside a macro"
+ */
 #define bpf_debug(fmt, ...)                          \
     ({                                               \
         char ____fmt[] = fmt;                        \
         bpf_trace_printk(____fmt, sizeof(____fmt),   \
             ##__VA_ARGS__);                          \
     })
-#else
-		  /* TODO: Fix the usage of variadic functions. */
-static void __always_inline bpf_debug(char *fmt, ...)
-{
-	int i=3;
-	va_list valist;
-
-	va_start(valist, fmt);
-	va_end(valist);
-}
-#endif
 #else
 #define bpf_debug(fmt, ...)                          \
 {}
@@ -194,7 +187,6 @@ struct icmphdr_common {
 	__sum16 cksum;
 };
 
-
 /* Parse the Ethernet header and return protocol.
  * Ignore VLANs.
  *
@@ -271,7 +263,7 @@ static __always_inline int parse_iphdr(struct hdr_cursor *nh,
 	struct iphdr *iph = nh->pos;
 	int hdrsize;
 
-	if (iph + 1 > data_end)
+	if ( (void *)(iph + 1) > data_end)
 		return -1;
 
 	hdrsize = iph->ihl * 4;
@@ -782,7 +774,7 @@ static __always_inline int update_tcp_stats(struct flow_info *value,
 	op_tot_len = parse_tcpopt(tcph, data_end, values);
 
 	if( op_tot_len > 0 )
-		bpf_trace_printk("Unable to parse all options!\n");
+		bpf_debug("Unable to parse all options!\n");
 #endif /* ifdef __FLOW_TCP_OPTS__ */
 
 
@@ -808,7 +800,7 @@ static __always_inline int update_tcp_stats(struct flow_info *value,
 		seg_len = tcp_len - tcph->doff*4;
 		if( seg_len < 0 )
 		{
-			bpf_trace_printk("Err: tcp seg len %d\n",seg_len);
+			bpf_debug("Err: tcp seg len %d\n",seg_len);
 			return -1;
 		}
 	
@@ -1018,7 +1010,7 @@ int  flow_mon(struct __sk_buff *skb)
 		/* TODO: IPv6 */
 		int tcp_len = ip_tot_len - ((void *)tcphdr - iph);
 		if( tcp_len < 20 ) {
-			bpf_trace_printk("Error: tcp length: %d\n", tcp_len);
+			bpf_debug("Error: tcp length: %d\n", tcp_len);
 		}
 		else
 			update_tcp_stats(value, iph, tcphdr, tcp_len, data_end);
