@@ -7,7 +7,6 @@
 #endif
 
 #include "common.h"
-#include <string.h>
 #include <linux/bpf.h>
 #include <linux/if_vlan.h>
 #include <linux/if_ether.h>		// struct ethhdr
@@ -20,21 +19,34 @@
 #include <linux/icmpv6.h>
 #include <linux/tcp.h>
 #include <linux/udp.h>
-#include <netinet/in.h>
 #include <linux/ip.h>
 #ifndef __BCC__
 #include <bpf/bpf_helpers.h>
 #include <bpf/bpf_endian.h> 		// bpf_ntohs
 #include <iproute2/bpf_elf.h>
+#include <netinet/in.h>
+#include <string.h>
 #endif
 
 #ifdef _DEBUG_
+#ifndef __BCC__
 #define bpf_debug(fmt, ...)                          \
     ({                                               \
         char ____fmt[] = fmt;                        \
         bpf_trace_printk(____fmt, sizeof(____fmt),   \
             ##__VA_ARGS__);                          \
     })
+#else
+		  /* TODO: Fix the usage of variadic functions. */
+static void __always_inline bpf_debug(char *fmt, ...)
+{
+	int i=3;
+	va_list valist;
+
+	va_start(valist, fmt);
+	va_end(valist);
+}
+#endif
 #else
 #define bpf_debug(fmt, ...)                          \
 {}
@@ -108,7 +120,7 @@ struct optvalues {
 /* TODO: Improve performance by using multiple per-cpu hash maps.
  */
 #ifdef __BCC__
-BPF_ARRAY(fl_stats, __u32, NBINS); /* TODO */
+BPF_HASH(flowmon_stats, struct flow_id, struct flow_info, MAXFLOWS);
 #else /* ifdef __BCC__ */
 /* The standard way. Fully compatible with all tools, but 
  * needs an external program to be pinned and shared between
@@ -321,7 +333,7 @@ static __always_inline int parse_icmphdr_common(struct hdr_cursor *nh,
 {
 	struct icmphdr_common *h = nh->pos;
 
-	if (h + 1 > data_end)
+	if ( (void *)(h + 1) > data_end)
 		return -1;
 
 	nh->pos  = h + 1;
@@ -340,7 +352,7 @@ static __always_inline int parse_udphdr(struct hdr_cursor *nh,
 	int len;
 	struct udphdr *h = nh->pos;
 
-	if (h + 1 > data_end)
+	if ( (void *)(h + 1) > data_end)
 		return -1;
 
 	nh->pos  = h + 1;
@@ -488,7 +500,7 @@ static __always_inline int parse_tcphdr(struct hdr_cursor *nh,
 	int len;
 	struct tcphdr *h = nh->pos;
 
-	if (h + 1 > data_end)
+	if ( (void *)(h + 1) > data_end)
 		return -1;
 
 	len = h->doff * 4;
@@ -770,7 +782,7 @@ static __always_inline int update_tcp_stats(struct flow_info *value,
 	op_tot_len = parse_tcpopt(tcph, data_end, values);
 
 	if( op_tot_len > 0 )
-		bpf_debug("Unable to parse all options!\n");
+		bpf_trace_printk("Unable to parse all options!\n");
 #endif /* ifdef __FLOW_TCP_OPTS__ */
 
 
@@ -796,7 +808,7 @@ static __always_inline int update_tcp_stats(struct flow_info *value,
 		seg_len = tcp_len - tcph->doff*4;
 		if( seg_len < 0 )
 		{
-			bpf_debug("Err: tcp seg len %d\n",seg_len);
+			bpf_trace_printk("Err: tcp seg len %d\n",seg_len);
 			return -1;
 		}
 	
@@ -883,7 +895,7 @@ BCC_SEC("flowmon")
 #else
 SEC("flowmon")
 #endif
-int  flow_label_stats(struct __sk_buff *skb)
+int  flow_mon(struct __sk_buff *skb)
 {
 	/* Preliminary step: cast to void*.
 	 * (Not clear why data/data_end are stored as long)
@@ -1005,8 +1017,9 @@ int  flow_label_stats(struct __sk_buff *skb)
 		/* TODO: What happens in case options are present in IP? */
 		/* TODO: IPv6 */
 		int tcp_len = ip_tot_len - ((void *)tcphdr - iph);
-		if( tcp_len < 20 )
-			bpf_debug("Error: tcp length: %d\n", tcp_len);
+		if( tcp_len < 20 ) {
+			bpf_trace_printk("Error: tcp length: %d\n", tcp_len);
+		}
 		else
 			update_tcp_stats(value, iph, tcphdr, tcp_len, data_end);
 	}
