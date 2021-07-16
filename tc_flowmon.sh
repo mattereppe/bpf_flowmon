@@ -227,9 +227,9 @@ case $CMD in
 		load_bpf_programs;
 
 		echo "Starting..."
-		# start-stop-daemon --start -C -O $LOGFILE -b -m --pidfile $PIDFILE \
+		 #start-stop-daemon --start -C -O $LOGFILE -b -m --pidfile $PIDFILE \
 		start-stop-daemon --start -b -m --pidfile $PIDFILE \
-		  	--startas $UPLANED  $FLOWMON_OPTS
+		  	--startas $UPLANED  $FLOWMON_OPTS > cazzo.log 2>&1
 		;;
 
 	stop)
