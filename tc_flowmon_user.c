@@ -90,6 +90,7 @@ void usage(const char *prog_name)
 	fprintf(stderr,"-i <interval>: reporting period in sec [default=1s; 0=print once and exit]\n");
 	fprintf(stderr,"-d <dir>: directory where to save dumped flows (default to current dir)\n");
 	fprintf(stderr,"-l <file>: log messages to file (default: stdout)\n");
+	fprintf(stderr,"-j: encode flow info as json (same field as nProbe)\n");
 	fprintf(stderr,"q|v: quiet/verbose mode [default to: verbose]\n");
 }
 
@@ -101,9 +102,10 @@ int main(int argc, char **argv)
 	char pinned_file[PINFILENAMELEN];
 	int interval = 1;
 	int map_fd = -1;
+	int format = 0; /* 0=plaintext, 1=json */
 	int ret, opt;
 
-	while ((opt = getopt(argc, argv, "f:p:i:d:l:qv") ) != -1 )
+	while ((opt = getopt(argc, argv, "f:p:i:d:l:qjv") ) != -1 )
 	{
 		switch (opt) {
 			case 'f':
@@ -141,6 +143,9 @@ int main(int argc, char **argv)
 			case 'l':
 				logfile = optarg;
 				break;
+			case 'j':
+				format = 1;
+				break;
 			default:
 				usage(argv[0]);
 				goto out;
@@ -168,7 +173,7 @@ int main(int argc, char **argv)
 		goto out;
 	}
 
-	flow_poll(map_fd, interval, logfile, out_path);
+	flow_poll(map_fd, interval, logfile, out_path, format);
 	
 	ret = 0;
 

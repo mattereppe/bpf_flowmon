@@ -6,8 +6,9 @@
 
 FLOWMON_NAME="tc_flowmon_user"
 UPLANED="/usr/local/bin/$FLOWMON_NAME"
-PIDFILE="/var/run/bpfflowmon/$FLOWMON_NAME.pid"
-IFACELIST="/var/run/bpfflowmon/iface.list"
+RUNDIR="/var/run/bpfflowmon/"
+PIDFILE=$RUNDIR"$FLOWMON_NAME.pid"
+IFACELIST=$RUNDIR"iface.list"
 LOGFILE="/var/log/bpfflowmon.log"
 DUMPDIR="/tmp"
 
@@ -18,6 +19,7 @@ BPFMAP="/sys/fs/bpf/tc/globals/flowmon_stats"
 DIR="both"
 OUTDIR="./"
 INTERVAL="10"
+FORMAT="plaintext"
 
 usage()
 {
@@ -30,6 +32,7 @@ usage()
 			[ -d | --dir ] [ingress | egress | all]
 			[ -w | --write ] <directory>
 			[ -u | --userland ] <user_prog>
+			[ -j | --json ] 
 			[ --show-defaults ]
 			[ -h | --help ]
 			{ start | load | stop | unload | purge }
@@ -51,6 +54,7 @@ usage()
 		-d, --direction: load filter on the ingress/egress/both path (default: both)
 		-w, --write: dump the flows on file (default: stdout)
 		-u, --userland: name of the userland program to process flows
+		-j, --json: format output as json
 		--show-defaults: show defaults value for all parameters
 		-h, --help: print this message and exit
 
@@ -73,6 +77,8 @@ show_defaults()
 
 load_bpf_programs()
 {
+		test -d $RUNDIR || mkdir $RUNDIR
+
 		echo "Loading bpf program on: ";
 		for i in $IFACE; do
 			echo -n "- " $i ":"
@@ -108,9 +114,12 @@ remove_bpf_programs()
 {
 	if [ ! -f $IFACELIST ]; then
 		echo "Unable to auto-detect interface list!";
-		exit 1;
+		echo "Looking on all interfaces.";
+		DEV_LIST=$(ip -o l show up | awk -F": " '{ print $2;}');
+		IFACE="$DEV_LIST";
+	else
+		IFACE=`cat $IFACELIST`
 	fi
-	IFACE=`cat $IFACELIST`
 
 	echo "Unloading bpf program(s)...";
 	for i in $IFACE; do
@@ -123,7 +132,7 @@ remove_bpf_programs()
 	rm -f $IFACELIST
 }
 
-PARSED_ARGUMENTS=$(getopt -a -n $0 -o i:ap:s:m:d:w:u:h --long all,interface:,int:,program:,section:,map:,direction:,write:,show-defaults,userland:,help -- "$@")
+PARSED_ARGUMENTS=$(getopt -a -n $0 -o i:ap:s:m:d:w:u:jh --long all,interface:,int:,program:,section:,map:,direction:,write:,show-defaults,userland:,json,help -- "$@")
 VALID_ARGUMENTS=$?
 if [ "$VALID_ARGUMENTS" != "0" ]; then
 	usage
@@ -144,8 +153,8 @@ do
 			INTERVAL="$2";
 			shift 2;;
 		-p | --program)
-			PROG="$2";
-			test  -f $PROG  || echo "BPF program not found: $PROG"; exit 2;
+			BPFPROG="$2";
+			test  -f $PROG  || ( echo "BPF program not found: $PROG"; exit 2;)
 			shift 2;;
 		-s | --section)
 			SEC="$2";
@@ -171,6 +180,10 @@ do
 			UPLANED="$2";
 			test -x $UPLANED || echo "Userland utility not found or not executable: $UPLANED"; exit 2;
 			;;
+		-j | --json)
+			FORMAT="json"
+			shift
+			;;
 		-h | --help)
 			usage;;
  # -- means the end of the arguments; drop this, and break out of the while loop
@@ -195,7 +208,14 @@ fi
 
 CMD=$@
 
-FLOWMON_OPTS="-- -i $INTERVAL -d $DUMPDIR -l $LOGFILE"
+echo "cazzo"
+
+FLOWMON_OPTS="-- -i $INTERVAL -d $DUMPDIR -l $LOGFILE" 
+if [ "$FORMAT" == "json" ]; then
+	FLOWMON_OPTS=$FLOWMON_OPTS" -j"
+fi
+
+echo $FLOWMON_OPTS
 
 case $CMD in
 
@@ -206,13 +226,19 @@ case $CMD in
 	start)
 		load_bpf_programs;
 
+		echo "Starting..."
 		# start-stop-daemon --start -C -O $LOGFILE -b -m --pidfile $PIDFILE \
 		start-stop-daemon --start -b -m --pidfile $PIDFILE \
 		  	--startas $UPLANED  $FLOWMON_OPTS
 		;;
 
 	stop)
-		start-stop-daemon --stop --pidfile $PIDFILE
+		if [ -e $PIDFILE ]; then
+			start-stop-daemon --stop --pidfile $PIDFILE
+			rm -f $PIDFILE
+		else
+			echo "$UPLANED not running!"
+		fi
 
 		remove_bpf_programs;
 

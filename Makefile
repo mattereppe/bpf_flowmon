@@ -15,7 +15,7 @@ COMMON_H := common.h
 # Valid definition for all possible targets
 XDP_C = ${XDP_TARGETS:=.c}
 XDP_OBJ = ${XDP_C:.c=.o}
-USER_C := ${USER_TARGETS:=.c} flow_mgmt.c
+USER_C := ${USER_TARGETS:=.c} flow_mgmt.c to_json.c
 USER_OBJ := ${USER_C:.c=.o} 
 
 #LIBBPF_DIR = /home/debian/xdp-tutorial/libbpf/src/
