@@ -67,8 +67,7 @@ Note that you have to explicitely remove the BPF map. This can be done with the 
 
 There are several paramters that can be given to the userland utility. They are reported by the <code>--help</code> option:
 ```
-% ./tc_flowmon_user  --help
-./tc_flowmon_user: invalid option -- '-'
+% ./tc_flowmon_user -h
 Usage: ./tc_flowmon_user [options]
 
 where options can be:
@@ -77,7 +76,9 @@ where options can be:
 -i <interval>: reporting period in sec [default=1s; 0=print once and exit]
 -d <dir>: directory where to save dumped flows (default to current dir)
 -l <file>: log messages to file (default: stdout)
-q|v: quiet/verbose mode [default to: verbose]
+-j: encode flow info as json (same field as nProbe)
+-q|v: quiet/verbose mode [default to: verbose]
+-h: print this help and exit
 ```
 These options can also be passed through the management script, which also includes additional parameters for loading BPF programs:
 ```
@@ -91,6 +92,7 @@ Usage: ./tc_flowmon.sh [ -i | --interface ] <device>
 			[ -d | --dir ] [ingress | egress | all]
 			[ -w | --write ] <directory>
 			[ -u | --userland ] <user_prog>
+			[ -j | --json ] 
 			[ --show-defaults ]
 			[ -h | --help ]
 			{ start | load | stop | unload | purge }
@@ -112,9 +114,9 @@ Usage: ./tc_flowmon.sh [ -i | --interface ] <device>
 		-d, --direction: load filter on the ingress/egress/both path (default: both)
 		-w, --write: dump the flows on file (default: stdout)
 		-u, --userland: name of the userland program to process flows
+		-j, --json: format output as json
 		--show-defaults: show defaults value for all parameters
 		-h, --help: print this message and exit
-
 ```
 Default values in this case can be read directly from the script of listed with the <code>--show-defaults</code> option.
 
