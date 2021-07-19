@@ -91,7 +91,8 @@ void usage(const char *prog_name)
 	fprintf(stderr,"-d <dir>: directory where to save dumped flows (default to current dir)\n");
 	fprintf(stderr,"-l <file>: log messages to file (default: stdout)\n");
 	fprintf(stderr,"-j: encode flow info as json (same field as nProbe)\n");
-	fprintf(stderr,"q|v: quiet/verbose mode [default to: verbose]\n");
+	fprintf(stderr,"-q|v: quiet/verbose mode [default to: verbose]\n");
+	fprintf(stderr,"-h: print this help and exit\n");
 }
 
 int main(int argc, char **argv)
@@ -105,7 +106,7 @@ int main(int argc, char **argv)
 	int format = 0; /* 0=plaintext, 1=json */
 	int ret, opt;
 
-	while ((opt = getopt(argc, argv, "f:p:i:d:l:qjv") ) != -1 )
+	while ((opt = getopt(argc, argv, "f:p:i:d:l:qjvh") ) != -1 )
 	{
 		switch (opt) {
 			case 'f':
@@ -146,6 +147,9 @@ int main(int argc, char **argv)
 			case 'j':
 				format = 1;
 				break;
+			case 'h':
+				usage(argv[0]);
+				goto out;
 			default:
 				usage(argv[0]);
 				goto out;
