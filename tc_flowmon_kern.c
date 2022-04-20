@@ -635,7 +635,7 @@ static __always_inline int update_ip_stats(struct flow_info *value, void *iph)
 
 	/* Here we remove the dependency on the 
 	 * IP version, so in the following the same
-	 * code applied to both versions.
+	 * code applies to both versions.
 	 */
 	if ( ip4h->version == 4 )
 	{
@@ -648,9 +648,9 @@ static __always_inline int update_ip_stats(struct flow_info *value, void *iph)
 		tos = ip6h->priority;
 		for(int i=0; i<3; i++)
 		{
-			fl &= ip6h->flow_lbl[i];
+			fl |= ip6h->flow_lbl[i];
 			if( i <2 )
-				fl << 8;
+				fl <<= 8;
 		}
 		len = ntohs(ip6h->payload_len) + 40;
 		// TODO: Manage Jumbo payload (payload length = 0)
