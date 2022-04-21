@@ -652,6 +652,11 @@ static __always_inline int update_ip_stats(struct flow_info *value, void *iph)
 			if( i <2 )
 				fl <<= 8;
 		}
+      /* Mind that the MSB is shared with TC (only the bottom bits are
+       * used by flow label.
+       */
+      fl &= 0x0fffff;
+
 		len = ntohs(ip6h->payload_len) + 40;
 		// TODO: Manage Jumbo payload (payload length = 0)
 		ttl = ip6h->hop_limit;
