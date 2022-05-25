@@ -13,7 +13,7 @@ LOGFILE="/var/log/bpfflowmon.log"
 DUMPDIR="/tmp"
 
 IFACE="lo"
-BPFPROG="tc_flowmon_kern.o"
+BPFPROG="/usr/local/lib/flowmon/tc_flowmon_kern.o"
 BPFSEC="flowmon"
 BPFMAP="/sys/fs/bpf/tc/globals/flowmon_stats"
 DIR="both"
@@ -109,6 +109,17 @@ load_bpf_programs()
 		done
 		echo "$IFACE" > $IFACELIST
 }
+
+stop_bpf_util()
+{
+	if [ -e $PIDFILE ]; then
+		start-stop-daemon --stop --pidfile $PIDFILE
+		rm -f $PIDFILE
+	else
+		echo "$UPLANED not running!"
+	fi
+}
+
 
 remove_bpf_programs()
 {
@@ -208,8 +219,6 @@ fi
 
 CMD=$@
 
-echo "cazzo"
-
 FLOWMON_OPTS="-- -i $INTERVAL -d $DUMPDIR -l $LOGFILE" 
 if [ "$FORMAT" == "json" ]; then
 	FLOWMON_OPTS=$FLOWMON_OPTS" -j"
@@ -233,23 +242,26 @@ case $CMD in
 		;;
 
 	stop)
-		if [ -e $PIDFILE ]; then
-			start-stop-daemon --stop --pidfile $PIDFILE
-			rm -f $PIDFILE
-		else
-			echo "$UPLANED not running!"
-		fi
-
+#		if [ -e $PIDFILE ]; then
+#			start-stop-daemon --stop --pidfile $PIDFILE
+#			rm -f $PIDFILE
+#		else
+#			echo "$UPLANED not running!"
+#		fi
+#
+		stop_bpf_util;
 		remove_bpf_programs;
 
 		echo "Manually remove the pinned map when no more needed"
 		;;
 
 	unload)
+		stop_bpf_util;
 		remove_bpf_programs;
 		;;
 		
 	purge)
+		stop_bpf_util;
 		remove_bpf_programs;
 
 		echo -n "Removing pinned map...";

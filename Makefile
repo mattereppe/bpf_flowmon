@@ -1,8 +1,10 @@
  # SPDX-License-Identifier: (GPL-2.0 OR BSD-2-Clause)
 XDP_TARGETS := tc_flowmon_kern
 USER_TARGETS := tc_flowmon_user
+MGMT_TARGETS := tc_flowmon.sh
 PYTHON_TARGETS := 
 INSTALL_DIR := /usr/local/bin
+INSTALL_LIBS := /usr/local/lib/flowmon
 
 LLC ?= llc
 CLANG ?= clang
@@ -45,6 +47,9 @@ all: llvm-check $(USER_TARGETS) $(XDP_OBJ)
 
 install: all
 	cp -a $(USER_TARGETS) $(INSTALL_DIR)
+	cp -a $(MGMT_TARGETS) $(INSTALL_DIR)
+	test -d $(INSTALL_LIBS) || mkdir $(INSTALL_LIBS)
+	cp -a $(XDP_OBJ) $(INSTALL_LIBS)
 
 clean:
 	rm -rf $(LIBBPF_DIR)/build
