@@ -17,7 +17,6 @@ BPFPROG="/usr/local/lib/flowmon/tc_flowmon_kern.o"
 BPFSEC="flowmon"
 BPFMAP="/sys/fs/bpf/tc/globals/flowmon_stats"
 DIR="both"
-OUTDIR="./"
 INTERVAL="10"
 FORMAT="plaintext"
 
@@ -52,7 +51,7 @@ usage()
 		-s, --section: name of the bpf section to load
 		-m, --map: name of the map to be used for saving flows statistics
 		-d, --direction: load filter on the ingress/egress/both path (default: both)
-		-w, --write: dump the flows on file (default: stdout)
+		-w, --write: dump the flows on file 
 		-u, --userland: name of the userland program to process flows
 		-j, --json: format output as json
 		--show-defaults: show defaults value for all parameters
@@ -68,7 +67,7 @@ show_defaults()
 	echo "BPF program: " $BPFPROG
 	echo "BPF map: " $BPFMAP
 	echo "Queue direction: " $DIR
-	echo "Dump directory: " $OUTDIR
+	echo "Dump directory: " $DUMPDIR
 	echo "Dump interval: " $INTERVAL
 	echo "Userland program: " $UPLANED
 
@@ -183,7 +182,7 @@ do
 			fi
 			shift 2;;
 		-w | --write)
-			OUTDIR="$2";
+			DUMPDIR="$2";
 			shift 2;;
 		--show-defaults)
 			show_defaults;;
@@ -206,6 +205,7 @@ do
  	esac
 done
 
+
 if [ "$IFACE" == all ]; then
 	DEV_LIST=$(ip -o l show up | awk -F": " '{ print $2;}');
 	IFACE="$DEV_LIST";
@@ -224,7 +224,7 @@ if [ "$FORMAT" == "json" ]; then
 	FLOWMON_OPTS=$FLOWMON_OPTS" -j"
 fi
 
-echo $FLOWMON_OPTS
+#echo $FLOWMON_OPTS
 
 case $CMD in
 

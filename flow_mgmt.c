@@ -308,7 +308,8 @@ static void flow_print_full(const struct flow_id *fkey, const struct flow_info *
 	if(json) {
 		jsonbuf=to_json(fkey, fvalue, bkey, bvalue);
 		if( jsonbuf )
-			fprintf(fd, "%s\n\n", jsonbuf);
+			/* Don't leave empty lines, because this annoys filebeat. */
+			fprintf(fd, "%s\n", jsonbuf);
 		return;
 	}
 
