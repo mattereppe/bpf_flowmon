@@ -4,14 +4,19 @@
 # network flows and run the userland utility
 # to dump finished flows.
 
-FLOWMON_NAME="tc_flowmon_user"
-UPLANED="/usr/local/bin/$FLOWMON_NAME"
+# Internal variables. Cannot be changed by external configuration
+DEFAULTSFILE="/etc/default/bpfflowmon"
 RUNDIR="/var/run/bpfflowmon/"
 PIDFILE=$RUNDIR"$FLOWMON_NAME.pid"
+
+# Default values, may be changed by setting the corresponding variables in 
+# /etc/defaults/bpfflowmon or by providing them on the command line
+# (the latter takes precedence).
+FLOWMON_NAME="tc_flowmon_user"
+UPLANED="/usr/local/bin/$FLOWMON_NAME"
 IFACELIST=$RUNDIR"iface.list"
 LOGFILE="/var/log/bpfflowmon.log"
 DUMPDIR="/tmp"
-
 IFACE="lo"
 BPFPROG="/usr/local/lib/flowmon/tc_flowmon_kern.o"
 BPFSEC="flowmon"
@@ -19,6 +24,13 @@ BPFMAP="/sys/fs/bpf/tc/globals/flowmon_stats"
 DIR="both"
 INTERVAL="10"
 FORMAT="plaintext"
+
+if [ -f "$DEFAULTSFILE" ]; then
+	echo "reading from " $DEFAULTSFILE
+	. $DEFAULTSFILE;
+	else
+	echo $DEFAULTSFILE;
+fi
 
 usage()
 {
@@ -65,11 +77,14 @@ show_defaults()
 {
 	echo "Monitoring interface: " $IFACE
 	echo "BPF program: " $BPFPROG
+	echo "BPF program section name: " $BPFSEC
 	echo "BPF map: " $BPFMAP
+	echo "Userland program: " $UPLANED
+	echo "Userland log file: " $LOGFILE
 	echo "Queue direction: " $DIR
 	echo "Dump directory: " $DUMPDIR
 	echo "Dump interval: " $INTERVAL
-	echo "Userland program: " $UPLANED
+	echo "Data format: " $FORMAT
 
 	exit 3
 }
